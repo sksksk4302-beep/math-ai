@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+# .env temporarily removed
+
+.venv
+env/
+venv/
+*.json
+!package.json
+!tsconfig.json
