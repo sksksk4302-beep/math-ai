@@ -105,80 +105,75 @@ export default function VisualExplanation({ count1, count2, operator, visualItem
                 />
             </motion.div>
 
-            {/* Main Animation Area */}
-            <div className="flex flex-col items-center justify-center h-full pt-12">
-                {/* Equation Display */}
-                <motion.div
-                    initial={{ opacity: 0, y: -20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="text-4xl md:text-5xl font-black text-slate-700 mb-12"
-                >
-                    {count1} {operator} {count2} = ?
-                </motion.div>
+            {/* Main Content Area */}
+            <div className="flex flex-col items-center justify-center h-full pt-12 w-full z-10 relative">
+                <AnimatePresence mode="wait">
+                    {step === 'finish' ? (
+                        <motion.div
+                            key="finish"
+                            initial={{ scale: 0.8, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.8, opacity: 0 }}
+                            className="flex flex-col items-center gap-4"
+                        >
+                            <div className="text-2xl font-bold text-orange-600 mb-2">
+                                {total}개는 10개씩 묶어볼까요?
+                            </div>
+                            <div className="flex flex-wrap justify-center gap-4">
+                                {/* Ten Frames Logic */}
+                                {Array.from({ length: Math.ceil(total / 10) }).map((_, frameIdx) => {
+                                    const isLastFrame = frameIdx === Math.ceil(total / 10) - 1;
+                                    const countInFrame = isLastFrame && total % 10 !== 0 ? total % 10 : 10;
 
-                {/* Objects Animation */}
-                <div className="flex gap-16 items-center justify-center mb-8">
-                    {/* Left Group */}
-                    <AnimatePresence>
-                        {(step === 'showLeft' || step === 'showRight' || step === 'merge' || step === 'finish') && (
+                                    return (
+                                        <div key={frameIdx} className="bg-white/60 p-3 rounded-2xl border-4 border-orange-300 shadow-sm">
+                                            <div className="grid grid-cols-5 gap-2">
+                                                {Array.from({ length: 10 }).map((_, idx) => (
+                                                    <div
+                                                        key={idx}
+                                                        className={`w-8 h-8 md:w-10 md:h-10 flex items-center justify-center text-2xl md:text-3xl ${idx < countInFrame ? 'opacity-100 scale-100' : 'opacity-20 scale-75 grayscale'}`}
+                                                    >
+                                                        {idx < countInFrame ? itemEmoji : '⚪'}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                             <motion.div
-                                layout
-                                className="flex flex-wrap gap-3 justify-center max-w-xs"
+                                initial={{ y: 20, opacity: 0 }}
+                                animate={{ y: 0, opacity: 1 }}
+                                transition={{ delay: 0.5 }}
+                                className="text-4xl font-black text-orange-600 mt-2 bg-white px-6 py-2 rounded-full shadow-lg"
                             >
-                                {renderItems(count1, 'left')}
+                                정답은 {total}! 🎉
                             </motion.div>
-                        )}
-                    </AnimatePresence>
+                        </motion.div>
+                    ) : (
+                        <motion.div
+                            key="animating"
+                            className="flex items-center justify-center gap-4 md:gap-16 w-full"
+                        >
+                            {/* Left Group */}
+                            <div className="flex flex-wrap justify-center gap-2 w-1/3 min-w-[100px]">
+                                {(step === 'init' || step === 'showLeft' || step === 'showRight' || step === 'merge') &&
+                                    renderItems(count1, 'left')}
+                            </div>
 
-                    {/* Operator */}
-                    <AnimatePresence>
-                        {(step === 'showRight' || step === 'merge' || step === 'finish') && (
+                            {/* Operator */}
                             <motion.div
-                                initial={{ scale: 0 }}
-                                animate={{
-                                    scale: step === 'merge' || step === 'finish' ? 0 : 1,
-                                    opacity: step === 'merge' || step === 'finish' ? 0 : 1
-                                }}
-                                className="text-6xl font-black text-orange-500"
+                                animate={{ scale: [1, 1.2, 1] }}
+                                className="text-4xl md:text-6xl font-black text-slate-400"
                             >
                                 {operator}
                             </motion.div>
-                        )}
-                    </AnimatePresence>
 
-                    {/* Right Group */}
-                    <AnimatePresence>
-                        {(step === 'showRight' || step === 'merge' || step === 'finish') && operator === '+' && (
-                            <motion.div
-                                layout
-                                className="flex flex-wrap gap-3 justify-center max-w-xs"
-                            >
-                                {renderItems(count2, 'right')}
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
-                </div>
-
-                {/* Result Display */}
-                <AnimatePresence>
-                    {step === 'finish' && (
-                        <motion.div
-                            initial={{ scale: 0, rotate: -180 }}
-                            animate={{ scale: 1, rotate: 0 }}
-                            transition={{ type: "spring", stiffness: 200 }}
-                            className="mt-8"
-                        >
-                            <div className="bg-gradient-to-r from-green-400 to-blue-500 text-white px-12 py-6 rounded-full shadow-2xl border-4 border-white">
-                                <span className="text-6xl font-black">= {total}</span>
+                            {/* Right Group */}
+                            <div className="flex flex-wrap justify-center gap-2 w-1/3 min-w-[100px]">
+                                {(step === 'showRight' || step === 'merge') &&
+                                    renderItems(count2, 'right')}
                             </div>
-                            <motion.div
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                transition={{ delay: 0.5 }}
-                                className="text-center mt-4 text-2xl font-bold text-green-600"
-                            >
-                                정답은 {total}개야! 🎉
-                            </motion.div>
                         </motion.div>
                     )}
                 </AnimatePresence>

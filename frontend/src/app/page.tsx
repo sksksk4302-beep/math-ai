@@ -72,7 +72,8 @@ export default function Home() {
     // 1. Reset & Start Timer when problem changes
     useEffect(() => {
         if (problem) {
-            const limit = 5 + (problem.level - 1) * 3;
+            // New Rule: Base 10s + 5s per level
+            const limit = 10 + (problem.level - 1) * 5;
             setTimeLeft(limit);
             setTimerActive(true);
         }
@@ -475,16 +476,16 @@ export default function Home() {
                                             animate={{ scale: 1, y: 0 }}
                                             exit={{ scale: 0.8, y: 50 }}
                                             onClick={(e) => e.stopPropagation()}
-                                            className="bg-white rounded-3xl shadow-2xl max-w-5xl w-full overflow-hidden flex flex-col md:flex-row h-[80vh] md:h-[600px] relative"
+                                            className="bg-white md:rounded-3xl shadow-2xl w-full overflow-hidden flex flex-col md:flex-row fixed inset-0 md:inset-10 md:h-auto md:max-h-[800px] relative"
                                         >
                                             {/* Left: Visual Area (60%) */}
                                             <div
-                                                className="w-full md:w-3/5 bg-slate-50 p-4 flex items-center justify-center relative overflow-hidden cursor-pointer md:cursor-default"
+                                                className="w-full md:w-3/5 bg-slate-50 p-4 flex items-center justify-center relative overflow-hidden cursor-pointer md:cursor-default shrink-0 min-h-[40vh]"
                                                 onClick={() => setShowText(!showText)}
                                             >
                                                 {/* New Visual Explanation */}
                                                 {problem && parseProblem(problem.problem) ? (
-                                                    <div className="scale-75 md:scale-100">
+                                                    <div className="scale-75 md:scale-100 w-full">
                                                         <VisualExplanation
                                                             count1={parseProblem(problem.problem)!.num1}
                                                             count2={parseProblem(problem.problem)!.num2}
@@ -504,22 +505,22 @@ export default function Home() {
 
                                             {/* Right: Text Area (40%) */}
                                             <div className={`
-                                                w-full md:w-2/5 bg-white p-6 flex flex-col justify-center
+                                                w-full md:w-2/5 bg-white p-6 flex flex-col h-full
                                                 transition-all duration-300 ease-in-out
                                                 ${showText ? 'absolute inset-0 z-10 bg-white/95 backdrop-blur-sm' : 'hidden md:flex'}
                                             `}>
-                                                <div className="flex items-center gap-2 mb-6">
+                                                <div className="flex items-center gap-2 mb-6 shrink-0">
                                                     <span className="text-4xl bg-blue-100 p-2 rounded-xl">🤖</span>
                                                     <h3 className="text-xl font-black text-slate-700">AI 선생님의 힌트</h3>
                                                 </div>
 
-                                                <div className="flex-1 overflow-y-auto">
+                                                <div className="flex-1 overflow-y-auto min-h-0">
                                                     <p className="text-lg font-bold text-slate-700 mb-6 leading-relaxed whitespace-pre-wrap">
-                                                        {explanation.message}
+                                                        {explanation.message || "선생님이 설명을 준비하고 있어요..."}
                                                     </p>
                                                 </div>
 
-                                                <div className="flex flex-col gap-3 mt-4">
+                                                <div className="flex flex-col gap-3 mt-4 shrink-0">
                                                     <button
                                                         onClick={() => explanation.audio_base64 && playAudio(explanation.audio_base64)}
                                                         className="flex items-center justify-center gap-2 text-blue-500 font-bold hover:bg-blue-50 py-3 rounded-xl transition-colors"
@@ -549,9 +550,10 @@ export default function Home() {
                             <div className="w-16 h-16 border-4 border-blue-400 border-t-transparent rounded-full animate-spin"></div>
                             <p className="text-xl font-bold text-blue-400">문제를 만들고 있어요...</p>
                         </div>
-                    )}
-                </AnimatePresence>
-            </div>
-        </main>
+                    )
+                    }
+                </AnimatePresence >
+            </div >
+        </main >
     );
 }

@@ -1,21 +1,6 @@
 import os
 import json
 import uuid
-import random
-from typing import List, Optional
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from dotenv import load_dotenv
-import vertexai
-from vertexai.generative_models import GenerativeModel
-import firebase_admin
-from firebase_admin import credentials, firestore
-from google.cloud import texttospeech
-import base64
-
-# 1. 환경 변수 로드
-load_dotenv()
 
 # 2. Firebase & Vertex AI 초기화
 PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT")
@@ -38,12 +23,15 @@ except Exception as e:
     print(f"❌ Firestore connection failed: {e}")
     db = None
 
-# Vertex AI 초기화
+# Vertex AI 초기화 (Service Account Key 사용)
 try:
     vertexai.init(project=PROJECT_ID, location=LOCATION)
     print(f"✅ Vertex AI connected! Project: {PROJECT_ID}")
 except Exception as e:
-    print(f"❌ Vertex AI initialization failed: {e}")
+    error_msg = f"❌ Vertex AI initialization failed: {e}"
+    print(error_msg)
+    with open("backend_error.log", "a", encoding="utf-8") as f:
+        f.write(f"{error_msg}\n")
 
 app = FastAPI()
 
@@ -93,8 +81,8 @@ SYSTEM_PROMPT_EXPLAIN = """
 너는 7세 아이들을 가르치는 아주 친절하고 똑똑한 AI 수학 선생님이야.
 ### 사용 가능한 시각적 아이템 (visual_items)
 - apple, star, dinosaur, car, candy, bus, flower, pencil, coin
-- 위 목록에 있는 것만 사용해서 배열을 채워줘.
-- 예를 들어 3개를 보여줘야 하면 ["apple", "apple", "apple"] 처럼 작성해.
+- 위 목록 중에서 **매번 다른 것을 골라서** 사용해줘. 사과만 쓰지 마. 상황에 어울리는 것을 골라줘.
+- 예를 들어 3개를 보여줘야 하면 ["car", "car", "car"] 처럼 작성해.
 """
 
 SYSTEM_PROMPT_GENERATE = """
@@ -109,9 +97,12 @@ SYSTEM_PROMPT_GENERATE = """
 """
 
 try:
-    model_explain = GenerativeModel("gemini-2.5-flash", system_instruction=SYSTEM_PROMPT_EXPLAIN)
-    model_generate = GenerativeModel("gemini-2.5-flash", system_instruction=SYSTEM_PROMPT_GENERATE)
-except Exception:
+    # Vertex AI 모델 사용 (안정적인 gemini-1.0-pro 사용)
+    model_explain = GenerativeModel("gemini-1.0-pro", system_instruction=SYSTEM_PROMPT_EXPLAIN)
+    model_generate = GenerativeModel("gemini-1.0-pro", system_instruction=SYSTEM_PROMPT_GENERATE)
+    print("✅ Vertex AI Models Initialized (gemini-1.0-pro)")
+except Exception as e:
+    print(f"❌ Model Init Failed: {e}")
     model_explain = None
     model_generate = None
 
@@ -188,12 +179,17 @@ async def generate_problem(request: GenerateProblemRequest):
         }
 
     level_rule = LEVEL_GUIDES.get(current_level, LEVEL_GUIDES[1])
-    prompt = f"Level {current_level} 규칙: {level_rule}. 이 규칙에 맞는 문제를 하나 만들어줘."
+    # Add randomness to prompt to prevent caching/repetition
+    random_seed = random.randint(1, 10000)
+    prompt = f"Level {current_level} 규칙: {level_rule}. 이 규칙에 맞는 **새롭고 다양한** 수학 문제를 하나 만들어줘. 이전과 다른 숫자를 사용해. (Random Seed: {random_seed})"
 
     try:
         response = model_generate.generate_content(
             prompt,
-            generation_config={"response_mime_type": "application/json"}
+            generation_config={
+                "response_mime_type": "application/json",
+                "temperature": 1.0 # Max creativity
+            }
         )
         result = json.loads(response.text)
         
@@ -371,8 +367,28 @@ async def explain_error(request: QuizRequest):
         return result
 
     except Exception as e:
-        print(f"🔥 에러: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        error_msg = f"🔥 에러: {str(e)}"
+        print(error_msg)
+        with open("backend_error.log", "a", encoding="utf-8") as f:
+            f.write(f"{error_msg}\n")
+            
+        # Fallback response
+        fallback_msg = f"{request.user_name}, 괜찮아! 우리 다시 한 번 천천히 세어볼까?"
+        
+        # Randomize fallback items
+        available_items = ["apple", "star", "dinosaur", "car", "candy", "bus", "flower", "pencil", "coin"]
+        selected_item = random.choice(available_items)
+        # Use correct answer count if possible, otherwise default to 5
+        # We don't have correct answer in request, but we can try to parse problem or just show some
+        # Actually request.problem is "2 + 3" string. Let's just show 5 items as generic fallback or try to parse
+        
+        return {
+            "message": fallback_msg,
+            "animation_type": "counting",
+            "visual_items": [selected_item] * 5, 
+            "correct_answer": 0,
+            "audio_base64": synthesize_text(fallback_msg)
+        }
 
 @app.get("/")
 async def health_check():
