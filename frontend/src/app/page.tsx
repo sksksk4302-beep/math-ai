@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
 import Counting from '../components/visualizations/Counting';
 import TenFrame from '../components/visualizations/TenFrame';
+import VisualExplanation from '../components/VisualExplanation';
 
 // Types
 interface Problem {
@@ -25,6 +26,7 @@ interface Explanation {
     animation_type: string;
     visual_items: string[];
     correct_answer: number;
+    audio_base64?: string;
 }
 
 const INITIAL_PROBLEM: Problem = {
@@ -33,6 +35,17 @@ const INITIAL_PROBLEM: Problem = {
     answer: 5,
     level: 1
 };
+
+// Helper function to parse problem string
+function parseProblem(problemStr: string): { num1: number; num2: number; operator: '+' | '-' } | null {
+    const match = problemStr.match(/(\d+)\s*([+\-])\s*(\d+)/);
+    if (!match) return null;
+    return {
+        num1: parseInt(match[1]),
+        operator: match[2] as '+' | '-',
+        num2: parseInt(match[3])
+    };
+}
 
 export default function Home() {
     // State
@@ -47,10 +60,101 @@ export default function Home() {
     const [loading, setLoading] = useState(false);
     const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
     const [shake, setShake] = useState(false);
+    const [correctCount, setCorrectCount] = useState(0);
+    const TOTAL_GOAL = 30;
+    const GIFT_THRESHOLD = 25;
+    const [audioUrl, setAudioUrl] = useState<string | null>(null);
+    const [isListening, setIsListening] = useState(false);
+    const [timeLeft, setTimeLeft] = useState(0);
+    const [timerActive, setTimerActive] = useState(false);
+    const [showText, setShowText] = useState(false);
 
-    // Initial Load
+    // 1. Reset & Start Timer when problem changes
+    useEffect(() => {
+        if (problem) {
+            const limit = 5 + (problem.level - 1) * 3;
+            setTimeLeft(limit);
+            setTimerActive(true);
+        }
+    }, [problem]);
+
+    // 2. Countdown Logic
+    useEffect(() => {
+        if (!timerActive) return;
+
+        if (timeLeft === 0) {
+            handleTimeOver();
+            return;
+        }
+
+        const timer = setInterval(() => {
+            setTimeLeft((prev) => prev - 1);
+        }, 1000);
+
+        return () => clearInterval(timer);
+    }, [timeLeft, timerActive]);
+
+    const handleTimeOver = () => {
+        setTimerActive(false);
+        setFeedback("시간 초과! 땡! ⏰");
+        checkAnswer(undefined, true);
+    };
+
+    // Audio Autoplay
+    useEffect(() => {
+        if (audioUrl) {
+            const audio = new Audio(audioUrl);
+            audio.play().catch(e => console.error("Audio play failed:", e));
+        }
+    }, [audioUrl]);
+
+    const playAudio = (base64Audio: string) => {
+        const url = `data:audio/mp3;base64,${base64Audio}`;
+        setAudioUrl(url);
+    };
+
+    const startListening = () => {
+        if (!('webkitSpeechRecognition' in window)) return;
+
+        const recognition = new (window as any).webkitSpeechRecognition();
+        recognition.lang = 'ko-KR';
+        recognition.continuous = true;
+        recognition.interimResults = false;
+
+        recognition.onstart = () => setIsListening(true);
+        recognition.onend = () => {
+            // Always ON: Restart if stopped
+            setTimeout(() => {
+                if (document.visibilityState === 'visible') {
+                    try {
+                        recognition.start();
+                    } catch (e) {
+                        console.log("Mic restart skipped");
+                    }
+                }
+            }, 1000);
+        };
+
+        recognition.onresult = (event: any) => {
+            const transcript = event.results[event.results.length - 1][0].transcript;
+            const number = transcript.replace(/[^0-9]/g, '');
+            if (number) {
+                setUserAnswer(number);
+                checkAnswer(number); // Auto submit
+            }
+        };
+
+        try {
+            recognition.start();
+        } catch (e) {
+            console.error("Mic start error:", e);
+        }
+    };
+
+    // Initial Load & Mic Start
     useEffect(() => {
         prefetchProblem();
+        startListening();
     }, []);
 
     // Logic
@@ -75,6 +179,7 @@ export default function Home() {
         setExplanation(null);
         setIsCorrect(null);
         setUserAnswer('');
+        setShowText(false);
 
         try {
             const res = await fetch('http://localhost:8000/generate-problem', {
@@ -127,29 +232,33 @@ export default function Home() {
         setExplanation(null);
         setIsCorrect(null);
         setUserAnswer('');
+        setShowText(false);
         setProblem(nextProblem);
-
-        // Update stats from prefetched problem if available
-        if (nextProblem.level) {
-            setStats(prev => ({
-                ...prev,
-                level: nextProblem.level,
-            }));
-        }
 
         setNextProblem(null);
         setLoading(false);
         prefetchProblem();
     };
 
-    const checkAnswer = async () => {
-        if (!problem || !userAnswer) return;
+    const checkAnswer = async (answerOverride?: string, isTimeout = false) => {
+        if (!problem) return;
+        if (!isTimeout && (!answerOverride && !userAnswer)) return;
 
-        const answerNum = parseInt(userAnswer);
-        const correct = answerNum === problem.answer;
+        setTimerActive(false); // Stop timer
+
+        let correct = false;
+        let answerNum = 0;
+
+        if (!isTimeout) {
+            const answerToCheck = answerOverride || userAnswer;
+            answerNum = parseInt(answerToCheck);
+            correct = answerNum === problem.answer;
+        }
+
         setIsCorrect(correct);
 
         if (correct) {
+            setCorrectCount(prev => prev + 1);
             confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 }, colors: ['#FFD700', '#FF69B4', '#00BFFF'] });
             setFeedback("정답입니다! 🎉");
 
@@ -162,14 +271,21 @@ export default function Home() {
                 const data = await res.json();
                 setStats({ level: data.new_level, stickers: data.level_stickers, totalStickers: data.total_stickers });
 
-                if (data.levelup_event) {
+                if (data.new_level > stats.level) {
+                    setFeedback(`Lv.${data.new_level}로 넘어가겠습니다!! 🚀`);
+                    playAudio(data.audio_base64); // Play level up audio if available
+                } else if (data.levelup_event) {
                     setFeedback("레벨 업! 🚀");
-                    confetti({ particleCount: 300, spread: 120 });
                 }
 
-                setTimeout(() => handleNextProblem(data.levelup_event), 1500);
+                if (data.audio_base64) {
+                    playAudio(data.audio_base64);
+                }
+
+                setTimeout(() => handleNextProblem(data.levelup_event), 2000);
             } catch (error) {
                 console.error("Submit failed:", error);
+                setTimeout(() => handleNextProblem(false), 1500);
             }
         } else {
             setShake(true);
@@ -185,11 +301,18 @@ export default function Home() {
                 const res = await fetch('http://localhost:8000/explain-error', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ problem: problem.problem, wrong_answer: userAnswer, user_name: userName })
+                    body: JSON.stringify({
+                        problem: problem.problem,
+                        wrong_answer: isTimeout ? "시간초과" : (answerOverride || userAnswer),
+                        user_name: userName
+                    })
                 });
                 const data = await res.json();
                 setExplanation(data);
-                setFeedback("");
+                if (data.audio_base64) {
+                    playAudio(data.audio_base64);
+                }
+                setFeedback(isTimeout ? "시간이 다 됐어요! 😅" : "");
             } catch (error) {
                 console.error("Explain failed:", error);
                 setFeedback("선생님이 잠깐 쉬고 계세요 😴");
@@ -239,10 +362,22 @@ export default function Home() {
                     </motion.div>
                     <motion.div
                         whileHover={{ scale: 1.05 }}
-                        className="flex items-center gap-2 bg-yellow-400 text-yellow-900 px-5 py-2 rounded-full shadow-md border-b-4 border-yellow-600"
+                        className="flex items-center gap-2 bg-red-100 text-red-600 px-5 py-2 rounded-full shadow-md border-b-4 border-red-300"
                     >
-                        <span>⭐️</span>
-                        <span className="font-bold">{stats.stickers}</span>
+                        <span>⏰</span>
+                        <span className="font-bold text-xl">{timeLeft}초</span>
+                    </motion.div>
+                    {/* Progress Tracker */}
+                    <motion.div
+                        whileHover={{ scale: 1.05 }}
+                        className="flex items-center gap-2 bg-gradient-to-r from-pink-400 to-purple-500 text-white px-5 py-2 rounded-full shadow-md border-b-4 border-purple-700"
+                    >
+                        <span>🎁</span>
+                        <span className="font-bold">
+                            {correctCount >= GIFT_THRESHOLD
+                                ? "선물 획득! 🎉"
+                                : `선물까지 ${GIFT_THRESHOLD - correctCount}문제`}
+                        </span>
                     </motion.div>
                 </div>
             </header>
@@ -285,9 +420,17 @@ export default function Home() {
                                         autoFocus
                                     />
                                     <motion.button
+                                        whileHover={{ scale: 1.1 }}
+                                        whileTap={{ scale: 0.9 }}
+                                        onClick={startListening}
+                                        className={`w-20 h-20 rounded-full flex items-center justify-center text-4xl shadow-lg transition-colors ${isListening ? 'bg-red-500 animate-pulse shadow-red-300' : 'bg-blue-100 hover:bg-blue-200'}`}
+                                    >
+                                        🎤
+                                    </motion.button>
+                                    <motion.button
                                         whileHover={{ scale: 1.05, translateY: -2 }}
                                         whileTap={{ scale: 0.95, translateY: 2 }}
-                                        onClick={checkAnswer}
+                                        onClick={() => checkAnswer()}
                                         disabled={loading || isCorrect === true}
                                         className={`
                                             h-40 px-10 rounded-3xl text-3xl font-black text-white shadow-[0_8px_0_rgb(0,0,0,0.2)] border-b-0 transition-all
@@ -314,30 +457,88 @@ export default function Home() {
                                 </div>
                             </div>
 
-                            {/* AI Explanation Bubble */}
+                            {/* AI Explanation Modal */}
                             <AnimatePresence>
                                 {explanation && (
                                     <motion.div
-                                        initial={{ opacity: 0, y: 50, scale: 0.8 }}
-                                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                                        exit={{ opacity: 0, scale: 0.8 }}
-                                        className="mt-8 bg-white rounded-3xl p-6 shadow-xl border-4 border-blue-100 relative max-w-2xl mx-auto"
+                                        initial={{ opacity: 0 }}
+                                        animate={{ opacity: 1 }}
+                                        exit={{ opacity: 0 }}
+                                        className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                                        onClick={() => {
+                                            setExplanation(null);
+                                            fetchProblem();
+                                        }}
                                     >
-                                        <div className="absolute -top-4 left-1/2 -translate-x-1/2 w-8 h-8 bg-white border-t-4 border-l-4 border-blue-100 rotate-45"></div>
-                                        <div className="flex gap-6 items-start">
-                                            <div className="text-6xl bg-blue-50 p-2 rounded-2xl">🤖</div>
-                                            <div className="flex-1 text-left">
-                                                <h3 className="font-bold text-blue-500 mb-2">AI 선생님의 힌트</h3>
-                                                <p className="text-xl text-slate-600 leading-relaxed whitespace-pre-wrap mb-4">
-                                                    {explanation.message}
-                                                </p>
-                                                {explanation.visual_items && (
-                                                    <div className="bg-slate-50 rounded-xl p-4 border-2 border-slate-100">
-                                                        {renderVisualization()}
+                                        <motion.div
+                                            initial={{ scale: 0.8, y: 50 }}
+                                            animate={{ scale: 1, y: 0 }}
+                                            exit={{ scale: 0.8, y: 50 }}
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="bg-white rounded-3xl shadow-2xl max-w-5xl w-full overflow-hidden flex flex-col md:flex-row h-[80vh] md:h-[600px] relative"
+                                        >
+                                            {/* Left: Visual Area (60%) */}
+                                            <div
+                                                className="w-full md:w-3/5 bg-slate-50 p-4 flex items-center justify-center relative overflow-hidden cursor-pointer md:cursor-default"
+                                                onClick={() => setShowText(!showText)}
+                                            >
+                                                {/* New Visual Explanation */}
+                                                {problem && parseProblem(problem.problem) ? (
+                                                    <div className="scale-75 md:scale-100">
+                                                        <VisualExplanation
+                                                            count1={parseProblem(problem.problem)!.num1}
+                                                            count2={parseProblem(problem.problem)!.num2}
+                                                            operator={parseProblem(problem.problem)!.operator}
+                                                            visualItems={explanation.visual_items}
+                                                        />
                                                     </div>
+                                                ) : (
+                                                    renderVisualization()
                                                 )}
+
+                                                {/* Mobile Hint */}
+                                                <div className="absolute bottom-4 text-slate-400 text-sm md:hidden animate-bounce bg-white/80 px-3 py-1 rounded-full">
+                                                    {showText ? "화면을 누르면 설명이 닫혀요" : "화면을 눌러서 설명을 보세요!"}
+                                                </div>
                                             </div>
-                                        </div>
+
+                                            {/* Right: Text Area (40%) */}
+                                            <div className={`
+                                                w-full md:w-2/5 bg-white p-6 flex flex-col justify-center
+                                                transition-all duration-300 ease-in-out
+                                                ${showText ? 'absolute inset-0 z-10 bg-white/95 backdrop-blur-sm' : 'hidden md:flex'}
+                                            `}>
+                                                <div className="flex items-center gap-2 mb-6">
+                                                    <span className="text-4xl bg-blue-100 p-2 rounded-xl">🤖</span>
+                                                    <h3 className="text-xl font-black text-slate-700">AI 선생님의 힌트</h3>
+                                                </div>
+
+                                                <div className="flex-1 overflow-y-auto">
+                                                    <p className="text-lg font-bold text-slate-700 mb-6 leading-relaxed whitespace-pre-wrap">
+                                                        {explanation.message}
+                                                    </p>
+                                                </div>
+
+                                                <div className="flex flex-col gap-3 mt-4">
+                                                    <button
+                                                        onClick={() => explanation.audio_base64 && playAudio(explanation.audio_base64)}
+                                                        className="flex items-center justify-center gap-2 text-blue-500 font-bold hover:bg-blue-50 py-3 rounded-xl transition-colors"
+                                                    >
+                                                        <span>🔊</span> 다시 듣기
+                                                    </button>
+
+                                                    <button
+                                                        onClick={() => {
+                                                            setExplanation(null);
+                                                            fetchProblem();
+                                                        }}
+                                                        className="w-full bg-gradient-to-r from-green-400 to-blue-500 text-white text-xl font-black py-4 rounded-2xl shadow-lg hover:shadow-xl transition-shadow"
+                                                    >
+                                                        OK! 다음 문제 👍
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </motion.div>
                                     </motion.div>
                                 )}
                             </AnimatePresence>

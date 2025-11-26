@@ -11,6 +11,8 @@ import vertexai
 from vertexai.generative_models import GenerativeModel
 import firebase_admin
 from firebase_admin import credentials, firestore
+from google.cloud import texttospeech
+import base64
 
 # 1. 환경 변수 로드
 load_dotenv()
@@ -89,17 +91,6 @@ class SubmitResultRequest(BaseModel):
 # 6. Gemini Models
 SYSTEM_PROMPT_EXPLAIN = """
 너는 7세 아이들을 가르치는 아주 친절하고 똑똑한 AI 수학 선생님이야.
-아이가 문제를 틀렸을 때, 무조건 정답을 알려주는 게 아니라 **"왜 틀렸는지"**를 아이 눈높이에서 설명해줘야 해.
-가장 중요한 건 **"문제의 유형과 난이도에 맞는 시각적 설명"**을 제공하는 거야.
-
-### 응답 포맷 (JSON)
-{
-    "message": "아이에게 해줄 말",
-    "animation_type": "counting" | "ten_frame",
-    "visual_items": ["apple", "apple", "apple"], 
-    "correct_answer": 정답 숫자
-}
-
 ### 사용 가능한 시각적 아이템 (visual_items)
 - apple, star, dinosaur, car, candy, bus, flower, pencil, coin
 - 위 목록에 있는 것만 사용해서 배열을 채워줘.
@@ -123,6 +114,28 @@ try:
 except Exception:
     model_explain = None
     model_generate = None
+
+# 6.5 TTS Helper
+def synthesize_text(text: str) -> Optional[str]:
+    try:
+        client = texttospeech.TextToSpeechClient()
+        input_text = texttospeech.SynthesisInput(text=text)
+        voice = texttospeech.VoiceSelectionParams(
+            language_code="ko-KR",
+            name="ko-KR-Neural2-C",
+        )
+        audio_config = texttospeech.AudioConfig(
+            audio_encoding=texttospeech.AudioEncoding.MP3,
+            speaking_rate=0.9,
+            pitch=1.0
+        )
+        response = client.synthesize_speech(
+            request={"input": input_text, "voice": voice, "audio_config": audio_config}
+        )
+        return base64.b64encode(response.audio_content).decode("utf-8")
+    except Exception as e:
+        print(f"⚠️ TTS Error: {e}")
+        return None
 
 # 7. API Endpoints
 
@@ -214,88 +227,105 @@ async def generate_problem(request: GenerateProblemRequest):
 
 @app.post("/submit-result")
 async def submit_result(request: SubmitResultRequest):
+    # Return success even if DB is not available
     if not db:
-        raise HTTPException(status_code=500, detail="Database not connected")
-
-    user_ref = db.collection("users").document(request.user_id)
-    
-    # Transaction to ensure atomic updates
-    @firestore.transactional
-    def update_user_stats(transaction, ref):
-        snapshot = transaction.get(ref)
-        if not snapshot.exists:
-            # 초기화: level 1, level_stickers 0, total_stickers 0
-            user_data = {
-                "current_level": 1, 
-                "level_stickers": 0, 
-                "total_stickers": 0,
-                "recent_results": []
-            }
-        else:
-            user_data = snapshot.to_dict()
-
-        current_level = user_data.get("current_level", 1)
-        level_stickers = user_data.get("level_stickers", 0)
-        total_stickers = user_data.get("total_stickers", 0)
-        recent_results = user_data.get("recent_results", [])
-
-        # 1. Update History
-        db.collection("history").add({
-            "user_id": request.user_id,
-            "problem_id": request.problem_id,
-            "is_correct": request.is_correct,
-            "timestamp": firestore.SERVER_TIMESTAMP
-        })
-
-        # 2. Update Recent Results (참고용으로 유지)
-        recent_results.append(request.is_correct)
-        if len(recent_results) > 10:
-            recent_results.pop(0)
-
-        grand_finale = False
-        levelup_event = False
-
-        # 3. Reward & Leveling Logic (New Rule: 5 stickers per level)
-        if request.is_correct:
-            level_stickers += 1
-            total_stickers += 1
-            
-            # Check for Level Up or Grand Finale
-            if level_stickers >= 5:
-                if current_level < 5:
-                    current_level += 1
-                    level_stickers = 0 # Reset for new level
-                    levelup_event = True
-                    print(f"🆙 Level Up! {request.user_id} -> Lv.{current_level}")
-                else:
-                    # Level 5 and 5 stickers collected -> Grand Finale!
-                    grand_finale = True
-                    print(f"🎉 Grand Finale! {request.user_id} completed all levels!")
-        
-        # 오답일 경우 스티커 차감 로직은 없음 (격려 위주)
-
-        transaction.update(ref, {
-            "current_level": current_level,
-            "level_stickers": level_stickers,
-            "total_stickers": total_stickers,
-            "recent_results": recent_results
-        })
-
         return {
-            "new_level": current_level,
-            "level_stickers": level_stickers,
-            "total_stickers": total_stickers,
-            "levelup_event": levelup_event,
-            "grand_finale": grand_finale
+            "new_level": 1,
+            "level_stickers": 0,
+            "total_stickers": 0,
+            "levelup_event": False,
+            "grand_finale": False
         }
 
-    transaction = db.transaction()
     try:
+        user_ref = db.collection("users").document(request.user_id)
+        
+        # Transaction to ensure atomic updates
+        @firestore.transactional
+        def update_user_stats(transaction, ref):
+            snapshot = transaction.get(ref)
+            if not snapshot.exists:
+                # 초기화: level 1, level_stickers 0, total_stickers 0
+                user_data = {
+                    "current_level": 1, 
+                    "level_stickers": 0, 
+                    "total_stickers": 0,
+                    "recent_results": []
+                }
+            else:
+                user_data = snapshot.to_dict()
+
+            current_level = user_data.get("current_level", 1)
+            level_stickers = user_data.get("level_stickers", 0)
+            total_stickers = user_data.get("total_stickers", 0)
+            recent_results = user_data.get("recent_results", [])
+
+            # 1. Update History
+            try:
+                db.collection("history").add({
+                    "user_id": request.user_id,
+                    "problem_id": request.problem_id,
+                    "is_correct": request.is_correct,
+                    "timestamp": firestore.SERVER_TIMESTAMP
+                })
+            except Exception as e:
+                print(f"⚠️ History logging failed: {e}")
+
+            # 2. Update Recent Results (참고용으로 유지)
+            recent_results.append(request.is_correct)
+            if len(recent_results) > 10:
+                recent_results.pop(0)
+
+            grand_finale = False
+            levelup_event = False
+
+            # 3. Reward & Leveling Logic (New Rule: 5 stickers per level)
+            if request.is_correct:
+                level_stickers += 1
+                total_stickers += 1
+                
+                # Check for Level Up or Grand Finale
+                if level_stickers >= 5:
+                    if current_level < 5:
+                        current_level += 1
+                        level_stickers = 0 # Reset for new level
+                        levelup_event = True
+                        print(f"🆙 Level Up! {request.user_id} -> Lv.{current_level}")
+                    else:
+                        # Level 5 and 5 stickers collected -> Grand Finale!
+                        grand_finale = True
+                        print(f"🎉 Grand Finale! {request.user_id} completed all levels!")
+            
+            # 오답일 경우 스티커 차감 로직은 없음 (격려 위주)
+
+            transaction.update(ref, {
+                "current_level": current_level,
+                "level_stickers": level_stickers,
+                "total_stickers": total_stickers,
+                "recent_results": recent_results
+            })
+
+            return {
+                "new_level": current_level,
+                "level_stickers": level_stickers,
+                "total_stickers": total_stickers,
+                "grand_finale": grand_finale,
+                "audio_base64": synthesize_text("정답입니다! 참 잘했어요!") if request.is_correct else None
+            }
+
+        transaction = db.transaction()
         result = update_user_stats(transaction, user_ref)
         return result
     except Exception as e:
         print(f"🔥 결과 저장 실패: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Return default values instead of raising error
+        return {
+            "new_level": 1,
+            "level_stickers": 0,
+            "total_stickers": 0,
+            "levelup_event": False,
+            "grand_finale": False
+        }
 
 @app.post("/explain-error")
 async def explain_error(request: QuizRequest):
@@ -306,13 +336,16 @@ async def explain_error(request: QuizRequest):
     
     # Log to Firestore
     if db:
-        db.collection("history").add({
-            "type": "explanation_request",
-            "user_name": request.user_name,
-            "problem": request.problem,
-            "wrong_answer": request.wrong_answer,
-            "timestamp": firestore.SERVER_TIMESTAMP
-        })
+        try:
+            db.collection("history").add({
+                "type": "explanation_request",
+                "user_name": request.user_name,
+                "problem": request.problem,
+                "wrong_answer": request.wrong_answer,
+                "timestamp": firestore.SERVER_TIMESTAMP
+            })
+        except Exception as e:
+            print(f"⚠️ Firestore Error (Skipping DB): {e}")
 
     prompt = f"""
     문제: {request.problem}
@@ -329,6 +362,11 @@ async def explain_error(request: QuizRequest):
         )
         
         result = json.loads(response.text)
+        
+        # TTS Generation
+        audio_base64 = synthesize_text(result['message'])
+        result['audio_base64'] = audio_base64
+        
         print(f"📤 [응답] AI 선생님: {result['message']}")
         return result
 
