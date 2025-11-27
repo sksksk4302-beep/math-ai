@@ -1,6 +1,18 @@
 import os
 import json
 import uuid
+import random
+import base64
+from typing import Optional
+from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import firebase_admin
+from firebase_admin import credentials, firestore
+import vertexai
+from vertexai.generative_models import GenerativeModel
+from google.cloud import texttospeech
+from google.cloud import speech
 
 # 2. Firebase & Vertex AI 초기화
 PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT")
@@ -105,6 +117,14 @@ except Exception as e:
     print(f"❌ Model Init Failed: {e}")
     model_explain = None
     model_generate = None
+
+# 6.6 STT Client
+try:
+    speech_client = speech.SpeechClient()
+    print("✅ Google Cloud Speech Client Initialized")
+except Exception as e:
+    print(f"❌ Speech Client Init Failed: {e}")
+    speech_client = None
 
 # 6.5 TTS Helper
 def synthesize_text(text: str) -> Optional[str]:
@@ -393,3 +413,41 @@ async def explain_error(request: QuizRequest):
 @app.get("/")
 async def health_check():
     return {"status": "Math AI Server is Running 🚀"}
+
+@app.get("/timeout-audio")
+async def get_timeout_audio():
+    text = "시간이 다 됐어요! 선생님이랑 같이 풀어볼까요?"
+    audio_base64 = synthesize_text(text)
+    return {"audio_base64": audio_base64, "message": text}
+
+@app.post("/stt")
+async def speech_to_text(file: UploadFile = File(...)):
+    if not speech_client:
+        raise HTTPException(status_code=500, detail="Speech client not initialized")
+    
+    try:
+        content = await file.read()
+        audio = speech.RecognitionAudio(content=content)
+        
+        config = speech.RecognitionConfig(
+            encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
+            sample_rate_hertz=48000,
+            language_code="ko-KR",
+            enable_automatic_punctuation=True,
+        )
+        
+        response = speech_client.recognize(config=config, audio=audio)
+        
+        transcript = ""
+        for result in response.results:
+            transcript += result.alternatives[0].transcript
+            
+        # 숫자만 추출
+        import re
+        number = re.sub(r'[^0-9]', '', transcript)
+        
+        return {"text": transcript, "number": number}
+    except Exception as e:
+        print(f"STT Error: {e}")
+        # Fallback for other encodings if needed, or just return error
+        raise HTTPException(status_code=500, detail=str(e))

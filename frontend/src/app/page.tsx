@@ -68,6 +68,7 @@ export default function Home() {
     const [timeLeft, setTimeLeft] = useState(0);
     const [timerActive, setTimerActive] = useState(false);
     const [showText, setShowText] = useState(false);
+    const [showTimeoutTransition, setShowTimeoutTransition] = useState(false);
 
     // 1. Reset & Start Timer when problem changes
     useEffect(() => {
@@ -95,10 +96,27 @@ export default function Home() {
         return () => clearInterval(timer);
     }, [timeLeft, timerActive]);
 
-    const handleTimeOver = () => {
+    const handleTimeOver = async () => {
         setTimerActive(false);
-        setFeedback("시간 초과! 땡! ⏰");
-        checkAnswer(undefined, true);
+        setShowTimeoutTransition(true);
+
+        // Play Teacher Voice
+        try {
+            const res = await fetch('http://localhost:8000/timeout-audio');
+            const data = await res.json();
+            if (data.audio_base64) {
+                playAudio(data.audio_base64);
+            }
+        } catch (e) {
+            console.error("Timeout audio failed:", e);
+        }
+
+        // Wait for audio (approx 3.5s) then transition
+        setTimeout(() => {
+            setShowTimeoutTransition(false);
+            setFeedback("시간 초과! 땡! ⏰");
+            checkAnswer(undefined, true);
+        }, 3500);
     };
 
     // Audio Autoplay
@@ -115,40 +133,84 @@ export default function Home() {
     };
 
     const startListening = () => {
-        if (!('webkitSpeechRecognition' in window)) return;
+        setIsListening(true);
 
-        const recognition = new (window as any).webkitSpeechRecognition();
-        recognition.lang = 'ko-KR';
-        recognition.continuous = true;
-        recognition.interimResults = false;
+        if ('webkitSpeechRecognition' in window) {
+            const recognition = new (window as any).webkitSpeechRecognition();
+            recognition.lang = 'ko-KR';
+            recognition.continuous = false; // Changed to false for better one-shot interaction
+            recognition.interimResults = false;
 
-        recognition.onstart = () => setIsListening(true);
-        recognition.onend = () => {
-            // Always ON: Restart if stopped
-            setTimeout(() => {
-                if (document.visibilityState === 'visible') {
-                    try {
-                        recognition.start();
-                    } catch (e) {
-                        console.log("Mic restart skipped");
-                    }
+            recognition.onstart = () => setIsListening(true);
+            recognition.onend = () => setIsListening(false);
+
+            recognition.onresult = (event: any) => {
+                const transcript = event.results[0][0].transcript;
+                const number = transcript.replace(/[^0-9]/g, '');
+                if (number) {
+                    setUserAnswer(number);
+                    checkAnswer(number);
                 }
-            }, 1000);
-        };
+            };
 
-        recognition.onresult = (event: any) => {
-            const transcript = event.results[event.results.length - 1][0].transcript;
-            const number = transcript.replace(/[^0-9]/g, '');
-            if (number) {
-                setUserAnswer(number);
-                checkAnswer(number); // Auto submit
+            try {
+                recognition.start();
+            } catch (e) {
+                console.error("Mic start error:", e);
+                setIsListening(false);
             }
-        };
+        } else {
+            // Fallback: MediaRecorder -> Backend STT
+            handleVoiceRecord();
+        }
+    };
 
+    const handleVoiceRecord = async () => {
         try {
-            recognition.start();
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+            const audioChunks: Blob[] = [];
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) audioChunks.push(event.data);
+            };
+
+            mediaRecorder.onstop = async () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                const formData = new FormData();
+                formData.append('file', audioBlob, 'recording.webm');
+
+                try {
+                    const res = await fetch('http://localhost:8000/stt', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await res.json();
+                    if (data.number) {
+                        setUserAnswer(data.number);
+                        checkAnswer(data.number);
+                    }
+                } catch (e) {
+                    console.error("STT Failed:", e);
+                }
+                setIsListening(false);
+
+                // Stop all tracks
+                stream.getTracks().forEach(track => track.stop());
+            };
+
+            mediaRecorder.start();
+
+            // Record for 2.5 seconds
+            setTimeout(() => {
+                if (mediaRecorder.state === 'recording') {
+                    mediaRecorder.stop();
+                }
+            }, 2500);
+
         } catch (e) {
-            console.error("Mic start error:", e);
+            console.error("Mic access denied:", e);
+            setIsListening(false);
         }
     };
 
@@ -553,6 +615,30 @@ export default function Home() {
                     )
                     }
                 </AnimatePresence >
+
+                {/* Timeout Transition Modal */}
+                <AnimatePresence>
+                    {showTimeoutTransition && (
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
+                        >
+                            <motion.div
+                                initial={{ scale: 0.5, y: 50 }}
+                                animate={{ scale: 1, y: 0 }}
+                                exit={{ scale: 0.5, y: 50 }}
+                                className="bg-white rounded-[3rem] p-10 max-w-lg w-full text-center shadow-2xl border-8 border-blue-200 relative overflow-hidden"
+                            >
+                                <div className="absolute top-0 left-0 w-full h-6 bg-blue-200"></div>
+                                <div className="text-9xl mb-8 animate-bounce">🙋‍♂️</div>
+                                <h2 className="text-4xl font-black text-slate-700 mb-4">시간이 다 됐어요!</h2>
+                                <p className="text-2xl text-slate-500 font-bold">선생님이랑 같이 풀어볼까요?</p>
+                            </motion.div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
             </div >
         </main >
     );
