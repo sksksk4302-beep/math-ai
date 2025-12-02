@@ -16,7 +16,7 @@ steps:
       - '--image'
       - 'us-central1-docker.pkg.dev/$PROJECT_ID/math-ai-repo/math-ai-backend'
       - '--region'
-      - 'asia-northeast3'
+      - 'us-central1'
       - '--platform'
       - 'managed'
       - '--execution-environment'
