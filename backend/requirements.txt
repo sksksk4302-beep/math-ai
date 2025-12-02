@@ -3,3 +3,5 @@ uvicorn
 google-cloud-aiplatform
 python-dotenv
 firebase-admin
+google-cloud-texttospeech
+google-cloud-speech
