@@ -51,12 +51,16 @@ app = FastAPI()
 origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    # Firebase Hosting production domains
     "https://math-ai-479306.web.app",
+    "https://math-ai-479306.firebaseapp.com",
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    # Allow Firebase preview channels like https://math-ai-479306--feature.web.app
+    allow_origin_regex=r"^https://math-ai-479306(?:--[a-z0-9-]+)?\.(?:web\.app|firebaseapp\.com)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
