@@ -19,6 +19,8 @@ steps:
       - 'asia-northeast3'
       - '--platform'
       - 'managed'
+      - '--execution-environment'
+      - 'gen2'
       - '--allow-unauthenticated'
 images:
   - 'gcr.io/$PROJECT_ID/math-ai-backend'
