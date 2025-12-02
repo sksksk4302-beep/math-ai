@@ -102,7 +102,7 @@ export default function Home() {
 
         // Play Teacher Voice
         try {
-            const res = await fetch('http://localhost:8000/timeout-audio');
+            const res = await fetch('https://math-ai-backend-div6osazmq-uc.a.run.app/timeout-audio');
             const data = await res.json();
             if (data.audio_base64) {
                 playAudio(data.audio_base64);
@@ -181,7 +181,7 @@ export default function Home() {
                 formData.append('file', audioBlob, 'recording.webm');
 
                 try {
-                    const res = await fetch('http://localhost:8000/stt', {
+                    const res = await fetch('https://math-ai-backend-div6osazmq-uc.a.run.app/stt', {
                         method: 'POST',
                         body: formData
                     });
@@ -223,7 +223,7 @@ export default function Home() {
     // Logic
     const prefetchProblem = async () => {
         try {
-            const res = await fetch('http://localhost:8000/generate-problem', {
+            const res = await fetch('https://math-ai-backend-div6osazmq-uc.a.run.app/generate-problem', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ user_id: user })
@@ -245,7 +245,7 @@ export default function Home() {
         setShowText(false);
 
         try {
-            const res = await fetch('http://localhost:8000/generate-problem', {
+            const res = await fetch('https://math-ai-backend-div6osazmq-uc.a.run.app/generate-problem', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ user_id: user })
@@ -273,7 +273,7 @@ export default function Home() {
 
     const handleLevelChange = async (newLevel: number) => {
         try {
-            await fetch('http://localhost:8000/update-level', {
+            await fetch('https://math-ai-backend-div6osazmq-uc.a.run.app/update-level', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ user_id: user, new_level: newLevel })
@@ -326,7 +326,7 @@ export default function Home() {
             setFeedback("정답입니다! 🎉");
 
             try {
-                const res = await fetch('http://localhost:8000/submit-result', {
+                const res = await fetch('https://math-ai-backend-div6osazmq-uc.a.run.app/submit-result', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ user_id: user, problem_id: problem.id, is_correct: true })
@@ -355,13 +355,13 @@ export default function Home() {
             setTimeout(() => setShake(false), 500);
             setLoading(true);
             try {
-                await fetch('http://localhost:8000/submit-result', {
+                await fetch('https://math-ai-backend-div6osazmq-uc.a.run.app/submit-result', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ user_id: user, problem_id: problem.id, is_correct: false })
                 });
 
-                const res = await fetch('http://localhost:8000/explain-error', {
+                const res = await fetch('https://math-ai-backend-div6osazmq-uc.a.run.app/explain-error', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
