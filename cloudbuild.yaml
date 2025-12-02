@@ -1,11 +1,11 @@
 steps:
   # Build the container image
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/math-ai-backend', '.']
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/math-ai-repo/math-ai-backend', '.']
     dir: 'backend'
   # Push the container image
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/math-ai-backend']
+    args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/math-ai-repo/math-ai-backend']
   # Deploy container image to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
@@ -14,7 +14,7 @@ steps:
       - 'deploy'
       - 'math-ai-backend'
       - '--image'
-      - 'gcr.io/$PROJECT_ID/math-ai-backend'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/math-ai-repo/math-ai-backend'
       - '--region'
       - 'asia-northeast3'
       - '--platform'
@@ -23,6 +23,6 @@ steps:
       - 'gen2'
       - '--allow-unauthenticated'
 images:
-  - 'gcr.io/$PROJECT_ID/math-ai-backend'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/math-ai-repo/math-ai-backend'
 options:
   logging: CLOUD_LOGGING_ONLY
