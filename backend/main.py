@@ -115,8 +115,8 @@ SYSTEM_PROMPT_GENERATE = """
 
 try:
     # Vertex AI 모델 사용 (안정적인 gemini-1.0-pro 사용)
-    model_explain = GenerativeModel("gemini-1.0-pro-001", system_instruction=SYSTEM_PROMPT_EXPLAIN)
-    model_generate = GenerativeModel("gemini-1.0-pro-001", system_instruction=SYSTEM_PROMPT_GENERATE)
+    model_explain = GenerativeModel("gemini-1.5-flash", system_instruction=SYSTEM_PROMPT_EXPLAIN)
+    model_generate = GenerativeModel("gemini-1.5-flash", system_instruction=SYSTEM_PROMPT_GENERATE)
     print("✅ Vertex AI Models Initialized (gemini-1.0-pro)")
 except Exception as e:
     print(f"❌ Model Init Failed: {e}")
