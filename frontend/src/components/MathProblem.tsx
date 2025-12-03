@@ -103,7 +103,7 @@ export default function MathProblem({ userName }: MathProblemProps) {
                 </button>
             </div>
 
-            <h2 className="text-6xl font-bold mb-12 text-blue-600 font-mono tracking-wider">
+            <h2 className="text-4xl md:text-6xl font-bold mb-8 md:mb-12 text-blue-600 font-mono tracking-wider">
                 {problem.num1} + {problem.num2} = ?
             </h2>
 
@@ -113,15 +113,15 @@ export default function MathProblem({ userName }: MathProblemProps) {
                     value={userAnswer}
                     onChange={(e) => setUserAnswer(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-                    className="text-4xl w-32 p-4 text-center border-4 border-blue-300 rounded-2xl focus:border-blue-500 outline-none bg-white shadow-inner"
+                    className="text-3xl md:text-4xl w-24 md:w-32 p-3 md:p-4 text-center border-4 border-blue-300 rounded-2xl focus:border-blue-500 outline-none bg-white shadow-inner"
                     placeholder="?"
                 />
                 <button
                     onClick={handleSubmit}
                     disabled={loading}
-                    className="bg-blue-500 hover:bg-blue-600 text-white text-2xl font-bold py-4 px-8 rounded-2xl shadow-lg disabled:bg-gray-400 transition-all transform active:scale-95"
+                    className="bg-blue-500 hover:bg-blue-600 text-white text-xl md:text-2xl font-bold py-3 px-6 md:py-4 md:px-8 rounded-2xl shadow-lg disabled:bg-gray-400 transition-all transform active:scale-95"
                 >
-                    {loading ? '생각하는 중...' : '정답 확인!'}
+                    {loading ? '...' : '정답 확인!'}
                 </button>
             </div>
 

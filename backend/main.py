@@ -15,6 +15,7 @@ from google.cloud import texttospeech
 from google.cloud import speech
 
 # 2. Firebase & Vertex AI 초기화
+print("🚀 Backend Version 2.0 Started")
 PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT")
 LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 KEY_PATH = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
@@ -24,9 +25,14 @@ if not firebase_admin._apps:
     if KEY_PATH and os.path.exists(KEY_PATH):
         cred = credentials.Certificate(KEY_PATH)
         firebase_admin.initialize_app(cred)
-        print("✅ Firebase initialized successfully")
+        print("✅ Firebase initialized successfully (Key File)")
     else:
-        print("⚠️ Warning: GOOGLE_APPLICATION_CREDENTIALS not found. Firestore will not work.")
+        # Cloud Run 등에서는 ADC(Application Default Credentials) 사용
+        try:
+            firebase_admin.initialize_app(options={'projectId': PROJECT_ID})
+            print(f"✅ Firebase initialized successfully (ADC) - Project: {PROJECT_ID}")
+        except Exception as e:
+            print(f"⚠️ Warning: Firebase init failed: {e}. Firestore will not work.")
 
 # Firestore 클라이언트
 try:
@@ -100,6 +106,13 @@ SYSTEM_PROMPT_EXPLAIN = """
 - apple, star, dinosaur, car, candy, bus, flower, pencil, coin
 - 위 목록 중에서 **매번 다른 것을 골라서** 사용해줘. 사과만 쓰지 마. 상황에 어울리는 것을 골라줘.
 - 예를 들어 3개를 보여줘야 하면 ["car", "car", "car"] 처럼 작성해.
+
+### 응답 포맷 (JSON)
+{
+    "message": "아이고, 아깝다! 사과가 3개 있는데 2개를 더 가져오면 몇 개가 될까? 하나, 둘, 셋, 넷, 다섯! 정답은 5야.",
+    "visual_items": ["apple", "apple", "apple", "apple", "apple"],
+    "animation_type": "counting"
+}
 """
 
 SYSTEM_PROMPT_GENERATE = """
@@ -114,10 +127,21 @@ SYSTEM_PROMPT_GENERATE = """
 """
 
 try:
-    # Vertex AI 모델 사용 (안정적인 gemini-1.0-pro 사용)
-    model_explain = GenerativeModel("gemini-1.5-flash", system_instruction=SYSTEM_PROMPT_EXPLAIN)
-    model_generate = GenerativeModel("gemini-1.5-flash", system_instruction=SYSTEM_PROMPT_GENERATE)
-    print("✅ Vertex AI Models Initialized (gemini-1.0-pro)")
+    # Vertex AI 모델 초기화 (우선순위: 2.5 Flash -> 1.5 Flash)
+    try:
+        # 사용자 요청: Gemini 2.5 Flash 시도
+        model_name = "gemini-2.5-flash"
+        model_explain = GenerativeModel(model_name, system_instruction=SYSTEM_PROMPT_EXPLAIN)
+        model_generate = GenerativeModel(model_name, system_instruction=SYSTEM_PROMPT_GENERATE)
+        print(f"✅ Vertex AI Models Initialized ({model_name})")
+    except Exception as e_25:
+        print(f"⚠️ {model_name} init failed, falling back to 1.5-flash: {e_25}")
+        # 실패 시 1.5 Flash로 폴백
+        model_name = "gemini-1.5-flash"
+        model_explain = GenerativeModel(model_name, system_instruction=SYSTEM_PROMPT_EXPLAIN)
+        model_generate = GenerativeModel(model_name, system_instruction=SYSTEM_PROMPT_GENERATE)
+        print(f"✅ Vertex AI Models Initialized ({model_name}) - Fallback")
+
 except Exception as e:
     print(f"❌ Model Init Failed: {e}")
     model_explain = None
@@ -233,39 +257,49 @@ async def generate_problem(request: GenerateProblemRequest):
         # Level-specific fallbacks
         FALLBACK_PROBLEMS = {
             1: [
-                {"problem": "1 + 1", "answer": 2},
-                {"problem": "2 + 3", "answer": 5},
-                {"problem": "4 + 2", "answer": 6},
-                {"problem": "3 + 5", "answer": 8},
-                {"problem": "5 + 4", "answer": 9}
+                {"problem": "1 + 1", "answer": 2}, {"problem": "2 + 1", "answer": 3},
+                {"problem": "2 + 2", "answer": 4}, {"problem": "3 + 1", "answer": 4},
+                {"problem": "2 + 3", "answer": 5}, {"problem": "3 + 2", "answer": 5},
+                {"problem": "4 + 1", "answer": 5}, {"problem": "3 + 3", "answer": 6},
+                {"problem": "4 + 2", "answer": 6}, {"problem": "5 + 1", "answer": 6},
+                {"problem": "4 + 3", "answer": 7}, {"problem": "5 + 2", "answer": 7},
+                {"problem": "3 + 5", "answer": 8}, {"problem": "4 + 4", "answer": 8},
+                {"problem": "5 + 4", "answer": 9}, {"problem": "6 + 3", "answer": 9}
             ],
             2: [
-                {"problem": "7 + 4", "answer": 11},
-                {"problem": "8 + 5", "answer": 13},
-                {"problem": "9 + 6", "answer": 15},
-                {"problem": "6 + 7", "answer": 13},
-                {"problem": "5 + 8", "answer": 13}
+                {"problem": "7 + 4", "answer": 11}, {"problem": "6 + 5", "answer": 11},
+                {"problem": "8 + 4", "answer": 12}, {"problem": "7 + 5", "answer": 12},
+                {"problem": "9 + 4", "answer": 13}, {"problem": "8 + 5", "answer": 13},
+                {"problem": "7 + 6", "answer": 13}, {"problem": "9 + 5", "answer": 14},
+                {"problem": "8 + 6", "answer": 14}, {"problem": "9 + 6", "answer": 15},
+                {"problem": "8 + 7", "answer": 15}, {"problem": "9 + 7", "answer": 16},
+                {"problem": "8 + 8", "answer": 16}, {"problem": "9 + 8", "answer": 17},
+                {"problem": "9 + 9", "answer": 18}
             ],
             3: [
-                {"problem": "5 - 2", "answer": 3},
-                {"problem": "7 - 3", "answer": 4},
-                {"problem": "9 - 4", "answer": 5},
-                {"problem": "8 - 2", "answer": 6},
-                {"problem": "6 - 1", "answer": 5}
+                {"problem": "5 - 2", "answer": 3}, {"problem": "6 - 3", "answer": 3},
+                {"problem": "7 - 3", "answer": 4}, {"problem": "8 - 4", "answer": 4},
+                {"problem": "9 - 4", "answer": 5}, {"problem": "8 - 3", "answer": 5},
+                {"problem": "8 - 2", "answer": 6}, {"problem": "9 - 3", "answer": 6},
+                {"problem": "6 - 1", "answer": 5}, {"problem": "7 - 2", "answer": 5},
+                {"problem": "9 - 5", "answer": 4}, {"problem": "5 - 1", "answer": 4},
+                {"problem": "4 - 2", "answer": 2}, {"problem": "3 - 1", "answer": 2}
             ],
             4: [
-                {"problem": "10 + 5", "answer": 15},
-                {"problem": "12 + 3", "answer": 15},
-                {"problem": "11 + 6", "answer": 17},
-                {"problem": "15 + 2", "answer": 17},
-                {"problem": "13 + 4", "answer": 17}
+                {"problem": "10 + 5", "answer": 15}, {"problem": "11 + 4", "answer": 15},
+                {"problem": "12 + 3", "answer": 15}, {"problem": "13 + 2", "answer": 15},
+                {"problem": "11 + 6", "answer": 17}, {"problem": "12 + 5", "answer": 17},
+                {"problem": "15 + 2", "answer": 17}, {"problem": "14 + 3", "answer": 17},
+                {"problem": "13 + 4", "answer": 17}, {"problem": "16 + 2", "answer": 18},
+                {"problem": "12 + 7", "answer": 19}, {"problem": "11 + 8", "answer": 19}
             ],
             5: [
-                {"problem": "15 - 5", "answer": 10},
-                {"problem": "12 + 7", "answer": 19},
-                {"problem": "18 - 6", "answer": 12},
-                {"problem": "9 + 9", "answer": 18},
-                {"problem": "20 - 5", "answer": 15}
+                {"problem": "15 - 5", "answer": 10}, {"problem": "16 - 6", "answer": 10},
+                {"problem": "12 + 7", "answer": 19}, {"problem": "11 + 8", "answer": 19},
+                {"problem": "18 - 6", "answer": 12}, {"problem": "19 - 7", "answer": 12},
+                {"problem": "9 + 9", "answer": 18}, {"problem": "10 + 8", "answer": 18},
+                {"problem": "20 - 5", "answer": 15}, {"problem": "19 - 4", "answer": 15},
+                {"problem": "17 - 3", "answer": 14}, {"problem": "14 + 5", "answer": 19}
             ]
         }
         
