@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import dynamic from 'next/dynamic';
+
 
 // Dynamically import Lottie to avoid SSR issues
-const Lottie = dynamic(() => import('react-lottie-player'), { ssr: false });
+
 
 interface VisualExplanationProps {
     count1: number;
@@ -97,11 +97,10 @@ export default function VisualExplanation({ count1, count2, operator, visualItem
                 transition={{ type: "spring", duration: 1 }}
                 className="absolute left-8 top-1/2 -translate-y-1/2 w-32 h-32 md:w-40 md:h-40"
             >
-                <Lottie
-                    loop
-                    play
-                    path="https://lottie.host/4db68bbd-31f6-4cd8-b52c-a7d1e7c1e8c4/zxfPFJo3f9.json"
-                    style={{ width: '100%', height: '100%' }}
+                <img
+                    src="/teacher_robot.png"
+                    alt="AI Teacher"
+                    className="w-full h-full object-contain"
                 />
             </motion.div>
 

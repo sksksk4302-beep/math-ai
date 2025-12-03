@@ -16,7 +16,8 @@ export default function TestPage() {
 
         try {
             // 1. 백엔드(Python)로 요청 보내기
-            const res = await fetch('http://127.0.0.1:8000/explain-error', {
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+            const res = await fetch(`${apiUrl}/explain-error`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

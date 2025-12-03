@@ -50,7 +50,8 @@ export default function MathProblem({ userName }: MathProblemProps) {
         setExplanation(null);
 
         try {
-            const response = await fetch('http://localhost:8000/explain-error', {
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+            const response = await fetch(`${apiUrl}/explain-error`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
