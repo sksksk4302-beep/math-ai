@@ -230,14 +230,49 @@ async def generate_problem(request: GenerateProblemRequest):
     except Exception as e:
         print(f"🔥 문제 생성 실패 (AI Error): {e}")
         # Fallback problem to prevent 500 error
-        fallback_problems = [
-            {"problem": "1 + 1", "answer": 2},
-            {"problem": "2 + 3", "answer": 5},
-            {"problem": "5 + 5", "answer": 10},
-            {"problem": "10 - 2", "answer": 8},
-            {"problem": "7 + 4", "answer": 11}
-        ]
-        fallback = random.choice(fallback_problems)
+        # Level-specific fallbacks
+        FALLBACK_PROBLEMS = {
+            1: [
+                {"problem": "1 + 1", "answer": 2},
+                {"problem": "2 + 3", "answer": 5},
+                {"problem": "4 + 2", "answer": 6},
+                {"problem": "3 + 5", "answer": 8},
+                {"problem": "5 + 4", "answer": 9}
+            ],
+            2: [
+                {"problem": "7 + 4", "answer": 11},
+                {"problem": "8 + 5", "answer": 13},
+                {"problem": "9 + 6", "answer": 15},
+                {"problem": "6 + 7", "answer": 13},
+                {"problem": "5 + 8", "answer": 13}
+            ],
+            3: [
+                {"problem": "5 - 2", "answer": 3},
+                {"problem": "7 - 3", "answer": 4},
+                {"problem": "9 - 4", "answer": 5},
+                {"problem": "8 - 2", "answer": 6},
+                {"problem": "6 - 1", "answer": 5}
+            ],
+            4: [
+                {"problem": "10 + 5", "answer": 15},
+                {"problem": "12 + 3", "answer": 15},
+                {"problem": "11 + 6", "answer": 17},
+                {"problem": "15 + 2", "answer": 17},
+                {"problem": "13 + 4", "answer": 17}
+            ],
+            5: [
+                {"problem": "15 - 5", "answer": 10},
+                {"problem": "12 + 7", "answer": 19},
+                {"problem": "18 - 6", "answer": 12},
+                {"problem": "9 + 9", "answer": 18},
+                {"problem": "20 - 5", "answer": 15}
+            ]
+        }
+        
+        # Get fallbacks for current level, default to Level 1 if not found
+        level_fallbacks = FALLBACK_PROBLEMS.get(current_level, FALLBACK_PROBLEMS[1])
+        fallback = random.choice(level_fallbacks)
+        
         return {
             **fallback, 
             "level": current_level, 
