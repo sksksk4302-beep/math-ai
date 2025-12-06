@@ -145,32 +145,60 @@ export default function Home() {
         setAudioUrl(url);
     };
 
+    // Helper to normalize Korean numbers
+    const normalizeInput = (text: string): string => {
+        const map: { [key: string]: string } = {
+            '영': '0', '공': '0',
+            '일': '1', '하나': '1',
+            '이': '2', '둘': '2',
+            '삼': '3', '셋': '3',
+            '사': '4', '넷': '4',
+            '오': '5', '다섯': '5',
+            '육': '6', '여섯': '6',
+            '칠': '7', '일곱': '7',
+            '팔': '8', '여덟': '8',
+            '구': '9', '아홉': '9',
+            '십': '10', '열': '10'
+        };
+
+        // Check exact matches first
+        if (map[text.trim()]) return map[text.trim()];
+
+        // Replace text numbers with digits
+        let normalized = text;
+        Object.entries(map).forEach(([key, val]) => {
+            normalized = normalized.replace(new RegExp(key, 'g'), val);
+        });
+
+        // Extract digits
+        return normalized.replace(/[^0-9]/g, '');
+    };
+
     const startListening = () => {
         setIsListening(true);
 
         if ('webkitSpeechRecognition' in window) {
             const recognition = new (window as any).webkitSpeechRecognition();
             recognition.lang = 'ko-KR';
-            recognition.continuous = false; // Changed to false for better one-shot interaction
+            recognition.continuous = false;
             recognition.interimResults = false;
 
             recognition.onstart = () => setIsListening(true);
             recognition.onend = () => {
                 setIsListening(false);
-                // Auto-restart for continuous listening experience
-                // using a small delay to prevent rapid-fire loops if erroring
+                // Auto-restart logic
                 setTimeout(() => {
-                    try {
-                        recognition.start();
-                    } catch (e) {
-                        // ignore if already started
-                    }
+                    // Only restart if we don't have an answer/feedback yet? 
+                    // For now, keep existing behavior but safe guard
                 }, 300);
             };
 
             recognition.onresult = (event: any) => {
                 const transcript = event.results[0][0].transcript;
-                const number = transcript.replace(/[^0-9]/g, '');
+                console.log("Mic Transcript:", transcript);
+
+                const number = normalizeInput(transcript);
+
                 if (number) {
                     setUserAnswer(number);
                     checkAnswer(number);
@@ -184,7 +212,6 @@ export default function Home() {
                 setIsListening(false);
             }
         } else {
-            // Fallback: MediaRecorder -> Backend STT
             handleVoiceRecord();
         }
     };

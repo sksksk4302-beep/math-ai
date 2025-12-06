@@ -45,7 +45,7 @@ steps:
     args:
       - '-c'
       - |
-        export NEXT_PUBLIC_API_URL=$(cat /workspace/backend_url.txt)
+        echo "NEXT_PUBLIC_API_URL=$(cat /workspace/backend_url.txt)" > .env.production
         npm run build
     dir: 'frontend'
 
