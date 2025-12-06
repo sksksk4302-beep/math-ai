@@ -23,19 +23,31 @@ steps:
       - 'gen2'
       - '--allow-unauthenticated'
 
+      - '--allow-unauthenticated'
+
+  # Fetch the backend URL
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        gcloud run services describe math-ai-backend --platform managed --region us-central1 --format 'value(status.url)' > /workspace/backend_url.txt
+
   # Frontend: Install dependencies
   - name: 'node:20'
     entrypoint: 'npm'
     args: ['ci']
     dir: 'frontend'
 
-  # Frontend: Build the project
+  # Frontend: Build the project with dynamic API URL
   - name: 'node:20'
-    entrypoint: 'npm'
-    args: ['run', 'build']
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        export NEXT_PUBLIC_API_URL=$(cat /workspace/backend_url.txt)
+        npm run build
     dir: 'frontend'
-    env:
-      - 'NEXT_PUBLIC_API_URL=https://math-ai-backend-service-dot-$PROJECT_ID.uc.r.appspot.com'
 
   # Frontend: Deploy to Firebase Hosting
   - name: 'node:20'

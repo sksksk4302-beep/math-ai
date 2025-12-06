@@ -48,7 +48,13 @@ function parseProblem(problemStr: string): { num1: number; num2: number; operato
     };
 }
 
+// Config
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://math-ai-backend-div6osazmq-uc.a.run.app';
+
 export default function Home() {
+    // ... (rest of the component)
+    // inside functions, usage becomes:
+    // const res = await fetch(`${API_URL}/timeout-audio`, ...);
     // State
     // Generate unique session ID on mount for reset behavior
     const [user] = useState(() => {
@@ -109,8 +115,7 @@ export default function Home() {
 
         // Play Teacher Voice
         try {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://math-ai-backend-div6osazmq-uc.a.run.app';
-            const res = await fetch(`${apiUrl}/timeout-audio`, { cache: 'no-store' });
+            const res = await fetch(`${API_URL}/timeout-audio`, { cache: 'no-store' });
             const data = await res.json();
             if (data.audio_base64) {
                 playAudio(data.audio_base64);
@@ -200,8 +205,7 @@ export default function Home() {
                 formData.append('file', audioBlob, 'recording.webm');
 
                 try {
-                    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://math-ai-backend-div6osazmq-uc.a.run.app';
-                    const res = await fetch(`${apiUrl}/stt`, {
+                    const res = await fetch(`${API_URL}/stt`, {
                         method: 'POST',
                         body: formData,
                         cache: 'no-store'
@@ -244,8 +248,7 @@ export default function Home() {
     // Logic
     const prefetchProblem = async () => {
         try {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://math-ai-backend-div6osazmq-uc.a.run.app';
-            const res = await fetch(`${apiUrl}/generate-problem`, {
+            const res = await fetch(`${API_URL}/generate-problem`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ user_id: user }),
@@ -268,8 +271,7 @@ export default function Home() {
         setShowText(false);
 
         try {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://math-ai-backend-div6osazmq-uc.a.run.app';
-            const res = await fetch(`${apiUrl}/generate-problem`, {
+            const res = await fetch(`${API_URL}/generate-problem`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ user_id: user }),
@@ -298,8 +300,7 @@ export default function Home() {
 
     const handleLevelChange = async (newLevel: number) => {
         try {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://math-ai-backend-div6osazmq-uc.a.run.app';
-            await fetch(`${apiUrl}/update-level`, {
+            await fetch(`${API_URL}/update-level`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ user_id: user, new_level: newLevel }),
@@ -353,8 +354,7 @@ export default function Home() {
             setFeedback("정답입니다! 🎉");
 
             try {
-                const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://math-ai-backend-div6osazmq-uc.a.run.app';
-                const res = await fetch(`${apiUrl}/submit-result`, {
+                const res = await fetch(`${API_URL}/submit-result`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ user_id: user, problem_id: problem.id, is_correct: true }),
@@ -384,15 +384,14 @@ export default function Home() {
             setTimeout(() => setShake(false), 500);
             setLoading(true);
             try {
-                const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://math-ai-backend-div6osazmq-uc.a.run.app';
-                await fetch(`${apiUrl}/submit-result`, {
+                await fetch(`${API_URL}/submit-result`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ user_id: user, problem_id: problem.id, is_correct: false }),
                     cache: 'no-store'
                 });
 
-                const res = await fetch(`${apiUrl}/explain-error`, {
+                const res = await fetch(`${API_URL}/explain-error`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
