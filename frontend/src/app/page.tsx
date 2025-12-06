@@ -50,7 +50,13 @@ function parseProblem(problemStr: string): { num1: number; num2: number; operato
 
 export default function Home() {
     // State
-    const [user] = useState("test_user_1");
+    // Generate unique session ID on mount for reset behavior
+    const [user] = useState(() => {
+        if (typeof window !== 'undefined') {
+            return "user_" + Math.random().toString(36).substr(2, 9);
+        }
+        return "test_user_1";
+    });
     const [userName] = useState("한울이");
     const [problem, setProblem] = useState<Problem | null>(INITIAL_PROBLEM);
     const [nextProblem, setNextProblem] = useState<Problem | null>(null);
@@ -63,7 +69,7 @@ export default function Home() {
     const [shake, setShake] = useState(false);
     const [correctCount, setCorrectCount] = useState(0);
     const TOTAL_GOAL = 30;
-    const GIFT_THRESHOLD = 25;
+    // Gift threshold removed as per request
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
     const [isListening, setIsListening] = useState(false);
     const [timeLeft, setTimeLeft] = useState(0);
@@ -74,8 +80,8 @@ export default function Home() {
     // 1. Reset & Start Timer when problem changes
     useEffect(() => {
         if (problem) {
-            // New Rule: Base 10s + 5s per level
-            const limit = 10 + (problem.level - 1) * 5;
+            // New Rule: Base 10s + 10s per level
+            const limit = 10 + (problem.level - 1) * 10;
             setTimeLeft(limit);
             setTimerActive(true);
         }
@@ -144,7 +150,18 @@ export default function Home() {
             recognition.interimResults = false;
 
             recognition.onstart = () => setIsListening(true);
-            recognition.onend = () => setIsListening(false);
+            recognition.onend = () => {
+                setIsListening(false);
+                // Auto-restart for continuous listening experience
+                // using a small delay to prevent rapid-fire loops if erroring
+                setTimeout(() => {
+                    try {
+                        recognition.start();
+                    } catch (e) {
+                        // ignore if already started
+                    }
+                }, 300);
+            };
 
             recognition.onresult = (event: any) => {
                 const transcript = event.results[0][0].transcript;
@@ -409,7 +426,7 @@ export default function Home() {
     };
 
     return (
-        <main className="min-h-screen bg-[#FFF9F0] font-sans selection:bg-orange-200 selection:text-orange-900 relative overflow-hidden">
+        <main className="min-h-[100dvh] bg-[#FFF9F0] font-sans selection:bg-orange-200 selection:text-orange-900 relative">
             {/* Background Elements */}
             <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
                 <div className="absolute top-[-10%] right-[-5%] w-[300px] h-[300px] md:w-[600px] md:h-[600px] bg-yellow-300/30 rounded-full blur-3xl animate-pulse" />
@@ -434,7 +451,7 @@ export default function Home() {
                     </div>
 
                     {/* Stats Card */}
-                    <div className="flex items-center gap-2 md:gap-6 bg-white/80 backdrop-blur-sm px-3 py-2 md:px-6 md:py-3 rounded-2xl shadow-sm border border-orange-100">
+                    <div className="flex items-center gap-2 md:gap-6 bg-white/80 backdrop-blur-sm px-3 py-2 md:px-6 md:py-3 rounded-2xl shadow-sm border border-orange-100 mb-0 md:mb-0">
                         <div className="flex flex-col items-center">
                             <span className="text-[10px] md:text-xs font-bold text-slate-400 uppercase tracking-wider">Level</span>
                             <span className="text-lg md:text-2xl font-black text-orange-500">

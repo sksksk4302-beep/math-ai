@@ -375,7 +375,7 @@ async def submit_result(request: SubmitResultRequest):
                 total_stickers += 1
                 
                 # Check for Level Up or Grand Finale
-                if level_stickers >= 5:
+                if level_stickers >= 10:
                     if current_level < 5:
                         current_level += 1
                         level_stickers = 0 # Reset for new level
