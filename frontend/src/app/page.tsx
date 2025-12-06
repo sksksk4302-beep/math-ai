@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
 import Counting from '../components/visualizations/Counting';
@@ -37,26 +37,10 @@ const INITIAL_PROBLEM: Problem = {
     level: 1
 };
 
-// Helper function to parse problem string
-function parseProblem(problemStr: string): { num1: number; num2: number; operator: '+' | '-' } | null {
-    const match = problemStr.match(/(\d+)\s*([+\-])\s*(\d+)/);
-    if (!match) return null;
-    return {
-        num1: parseInt(match[1]),
-        operator: match[2] as '+' | '-',
-        num2: parseInt(match[3])
-    };
-}
-
-// Config
 // Config
 const API_URL = 'https://math-ai-backend-dlgntatyiq-uc.a.run.app';
 
 export default function Home() {
-    // ... (rest of the component)
-    // inside functions, usage becomes:
-    // const res = await fetch(`${API_URL}/timeout-audio`, ...);
-    // State
     // Generate unique session ID on mount for reset behavior
     const [user] = useState(() => {
         if (typeof window !== 'undefined') {
@@ -74,14 +58,12 @@ export default function Home() {
     const [loading, setLoading] = useState(false);
     const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
     const [shake, setShake] = useState(false);
-    const [correctCount, setCorrectCount] = useState(0);
-    const TOTAL_GOAL = 30;
-    // Gift threshold removed as per request
-    const [audioUrl, setAudioUrl] = useState<string | null>(null);
-    const [isListening, setIsListening] = useState(false);
+
+    // Audio Ref
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+
     const [timeLeft, setTimeLeft] = useState(0);
     const [timerActive, setTimerActive] = useState(false);
-    const [showText, setShowText] = useState(false);
     const [showTimeoutTransition, setShowTimeoutTransition] = useState(false);
 
     // 1. Reset & Start Timer when problem changes
@@ -133,17 +115,19 @@ export default function Home() {
         }, 3500);
     };
 
-    // Audio Autoplay
-    useEffect(() => {
-        if (audioUrl) {
-            const audio = new Audio(audioUrl);
-            audio.play().catch(e => console.error("Audio play failed:", e));
+    const stopAudio = () => {
+        if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current = null;
         }
-    }, [audioUrl]);
+    };
 
     const playAudio = (base64Audio: string) => {
+        stopAudio(); // Stop previous audio if any
         const url = `data:audio/mp3;base64,${base64Audio}`;
-        setAudioUrl(url);
+        const audio = new Audio(url);
+        audioRef.current = audio;
+        audio.play().catch(e => console.error("Audio play failed:", e));
     };
 
     // Helper to normalize Korean numbers
@@ -176,22 +160,23 @@ export default function Home() {
     };
 
     const startListening = () => {
-        setIsListening(true);
-
         if ('webkitSpeechRecognition' in window) {
             const recognition = new (window as any).webkitSpeechRecognition();
             recognition.lang = 'ko-KR';
-            recognition.continuous = false;
+            recognition.continuous = false; // We will restart it manually
             recognition.interimResults = false;
 
-            recognition.onstart = () => setIsListening(true);
+            recognition.onstart = () => { };
             recognition.onend = () => {
-                setIsListening(false);
                 // Auto-restart logic
+                // Small delay to prevent CPU spinning if error occurs repeatedly
                 setTimeout(() => {
-                    // Only restart if we don't have an answer/feedback yet? 
-                    // For now, keep existing behavior but safe guard
-                }, 300);
+                    try {
+                        recognition.start();
+                    } catch (e) {
+                        console.log("Recognition restart ignored");
+                    }
+                }, 200);
             };
 
             recognition.onresult = (event: any) => {
@@ -210,60 +195,10 @@ export default function Home() {
                 recognition.start();
             } catch (e) {
                 console.error("Mic start error:", e);
-                setIsListening(false);
             }
         } else {
-            handleVoiceRecord();
-        }
-    };
-
-    const handleVoiceRecord = async () => {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-            const audioChunks: Blob[] = [];
-
-            mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) audioChunks.push(event.data);
-            };
-
-            mediaRecorder.onstop = async () => {
-                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                const formData = new FormData();
-                formData.append('file', audioBlob, 'recording.webm');
-
-                try {
-                    const res = await fetch(`${API_URL}/stt`, {
-                        method: 'POST',
-                        body: formData,
-                        cache: 'no-store'
-                    });
-                    const data = await res.json();
-                    if (data.number) {
-                        setUserAnswer(data.number);
-                        checkAnswer(data.number);
-                    }
-                } catch (e) {
-                    console.error("STT Failed:", e);
-                }
-                setIsListening(false);
-
-                // Stop all tracks
-                stream.getTracks().forEach(track => track.stop());
-            };
-
-            mediaRecorder.start();
-
-            // Record for 2.5 seconds
-            setTimeout(() => {
-                if (mediaRecorder.state === 'recording') {
-                    mediaRecorder.stop();
-                }
-            }, 2500);
-
-        } catch (e) {
-            console.error("Mic access denied:", e);
-            setIsListening(false);
+            // Fallback for non-WebSpeech browsers is manual button only or limited support
+            console.log("WebSpeech API not supported");
         }
     };
 
@@ -271,6 +206,10 @@ export default function Home() {
     useEffect(() => {
         prefetchProblem();
         startListening();
+
+        return () => {
+            stopAudio();
+        }
     }, []);
 
     // Logic
@@ -296,7 +235,7 @@ export default function Home() {
         setExplanation(null);
         setIsCorrect(null);
         setUserAnswer('');
-        setShowText(false);
+        stopAudio(); // Stop any leftover audio
 
         try {
             const res = await fetch(`${API_URL}/generate-problem`, {
@@ -351,7 +290,6 @@ export default function Home() {
         setExplanation(null);
         setIsCorrect(null);
         setUserAnswer('');
-        setShowText(false);
         setProblem(nextProblem);
 
         setNextProblem(null);
@@ -377,7 +315,6 @@ export default function Home() {
         setIsCorrect(correct);
 
         if (correct) {
-            setCorrectCount(prev => prev + 1);
             confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 }, colors: ['#FFD700', '#FF69B4', '#00BFFF'] });
             setFeedback("정답입니다! 🎉");
 
@@ -443,13 +380,6 @@ export default function Home() {
                 setLoading(false);
             }
         }
-    };
-
-    const renderVisualization = () => {
-        if (!explanation?.visual_items) return null;
-        return explanation.animation_type === 'ten_frame'
-            ? <TenFrame items={explanation.visual_items} />
-            : <Counting items={explanation.visual_items} />;
     };
 
     return (
@@ -526,12 +456,32 @@ export default function Home() {
                                     {/* Decorative Top Bar */}
                                     <div className="h-3 md:h-4 bg-gradient-to-r from-orange-400 via-yellow-400 to-orange-400" />
 
+                                    {/* Timer Bar */}
+                                    {timerActive && (
+                                        <div className="h-2 bg-slate-100 w-full overflow-hidden">
+                                            <motion.div
+                                                className="h-full bg-red-400"
+                                                initial={{ width: "100%" }}
+                                                animate={{ width: "0%" }}
+                                                transition={{ duration: timeLeft, ease: "linear" }}
+                                            />
+                                        </div>
+                                    )}
+
                                     <div className="p-6 md:p-12 flex flex-col items-center gap-6 md:gap-10">
                                         {/* Problem Display */}
                                         <div className="flex flex-col items-center gap-2 md:gap-4">
-                                            <span className="px-3 py-1 md:px-4 md:py-1.5 bg-slate-100 text-slate-500 rounded-full text-xs md:text-sm font-bold tracking-wide">
-                                                문제 {stats.totalStickers + 1}
-                                            </span>
+                                            <div className="flex gap-2">
+                                                <span className="px-3 py-1 md:px-4 md:py-1.5 bg-slate-100 text-slate-500 rounded-full text-xs md:text-sm font-bold tracking-wide">
+                                                    문제 {stats.totalStickers + 1}
+                                                </span>
+                                                {timerActive && (
+                                                    <span className="px-3 py-1 md:px-4 md:py-1.5 bg-red-100 text-red-500 rounded-full text-xs md:text-sm font-bold tracking-wide animate-pulse">
+                                                        ⏰ {timeLeft}초
+                                                    </span>
+                                                )}
+                                            </div>
+
                                             <h2 className="text-5xl md:text-8xl font-black text-slate-800 tracking-tighter drop-shadow-sm">
                                                 {problem?.problem}
                                             </h2>
@@ -598,6 +548,7 @@ export default function Home() {
                         exit={{ opacity: 0 }}
                         className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end md:items-center justify-center p-0 md:p-4"
                         onClick={() => {
+                            stopAudio();
                             setExplanation(null);
                             fetchProblem();
                         }}
@@ -619,6 +570,7 @@ export default function Home() {
                                 </div>
                                 <button
                                     onClick={() => {
+                                        stopAudio();
                                         setExplanation(null);
                                         fetchProblem();
                                     }}
@@ -661,6 +613,7 @@ export default function Home() {
 
                                         <button
                                             onClick={() => {
+                                                stopAudio();
                                                 setExplanation(null);
                                                 fetchProblem();
                                             }}
