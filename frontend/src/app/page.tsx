@@ -49,7 +49,8 @@ function parseProblem(problemStr: string): { num1: number; num2: number; operato
 }
 
 // Config
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://math-ai-backend-div6osazmq-uc.a.run.app';
+// Config
+const API_URL = 'https://math-ai-backend-dlgntatyiq-uc.a.run.app';
 
 export default function Home() {
     // ... (rest of the component)
