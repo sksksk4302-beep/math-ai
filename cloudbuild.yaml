@@ -22,6 +22,26 @@ steps:
       - '--execution-environment'
       - 'gen2'
       - '--allow-unauthenticated'
+
+  # Frontend: Install dependencies
+  - name: 'node:20'
+    entrypoint: 'npm'
+    args: ['ci']
+    dir: 'frontend'
+
+  # Frontend: Build the project
+  - name: 'node:20'
+    entrypoint: 'npm'
+    args: ['run', 'build']
+    dir: 'frontend'
+    env:
+      - 'NEXT_PUBLIC_API_URL=https://math-ai-backend-service-dot-$PROJECT_ID.uc.r.appspot.com'
+
+  # Frontend: Deploy to Firebase Hosting
+  - name: 'node:20'
+    entrypoint: 'npx'
+    args: ['firebase-tools', 'deploy', '--project', '$PROJECT_ID', '--only', 'hosting']
+    dir: 'frontend'
 images:
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/math-ai-repo/math-ai-backend'
 options:
