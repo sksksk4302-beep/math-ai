@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
 import Counting from '../components/visualizations/Counting';
@@ -37,20 +37,17 @@ const INITIAL_PROBLEM: Problem = {
     level: 1
 };
 
-// Helper function to parse problem string
-function parseProblem(problemStr: string): { num1: number; num2: number; operator: '+' | '-' } | null {
-    const match = problemStr.match(/(\d+)\s*([+\-])\s*(\d+)/);
-    if (!match) return null;
-    return {
-        num1: parseInt(match[1]),
-        operator: match[2] as '+' | '-',
-        num2: parseInt(match[3])
-    };
-}
+// Config
+const API_URL = 'https://math-ai-backend-dlgntatyiq-uc.a.run.app';
 
 export default function Home() {
-    // State
-    const [user] = useState("test_user_3");
+    // Generate unique session ID on mount for reset behavior
+    const [user] = useState(() => {
+        if (typeof window !== 'undefined') {
+            return "user_" + Math.random().toString(36).substr(2, 9);
+        }
+        return "test_user_1";
+    });
     const [userName] = useState("한울이");
     const [problem, setProblem] = useState<Problem | null>(INITIAL_PROBLEM);
     const [nextProblem, setNextProblem] = useState<Problem | null>(null);
@@ -66,9 +63,11 @@ export default function Home() {
     const GIFT_THRESHOLD = 5;
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
     const [isListening, setIsListening] = useState(false);
+
+    // Audio Ref
+    const audioRef = useRef<HTMLAudioElement | null>(null);
     const [timeLeft, setTimeLeft] = useState(0);
     const [timerActive, setTimerActive] = useState(false);
-    const [showText, setShowText] = useState(false);
     const [showTimeoutTransition, setShowTimeoutTransition] = useState(false);
     const [isProcessingStt, setIsProcessingStt] = useState(false);
 
@@ -104,8 +103,7 @@ export default function Home() {
 
         // Play Teacher Voice
         try {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://math-ai-backend-div6osazmq-uc.a.run.app';
-            const res = await fetch(`${apiUrl}/timeout-audio`, { cache: 'no-store' });
+            const res = await fetch(`${API_URL}/timeout-audio`, { cache: 'no-store' });
             const data = await res.json();
             if (data.audio_base64) {
                 playAudio(data.audio_base64);
@@ -122,20 +120,50 @@ export default function Home() {
         }, 3500);
     };
 
-    // Audio Autoplay
-    useEffect(() => {
-        if (audioUrl) {
-            const audio = new Audio(audioUrl);
-            audio.play().catch(e => console.error("Audio play failed:", e));
+    const stopAudio = () => {
+        if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current = null;
         }
-    }, [audioUrl]);
+    };
 
     const playAudio = (base64Audio: string) => {
+        stopAudio(); // Stop previous audio if any
         const url = `data:audio/mp3;base64,${base64Audio}`;
         setAudioUrl(url);
-        // Direct play attempt for better mobile support if triggered by user action
+
         const audio = new Audio(url);
+        audioRef.current = audio;
         audio.play().catch(e => console.log("Auto-play blocked, waiting for interaction:", e));
+    };
+
+    // Helper to normalize Korean numbers
+    const normalizeInput = (text: string): string => {
+        const map: { [key: string]: string } = {
+            '영': '0', '공': '0',
+            '일': '1', '하나': '1',
+            '이': '2', '둘': '2',
+            '삼': '3', '셋': '3',
+            '사': '4', '넷': '4',
+            '오': '5', '다섯': '5',
+            '육': '6', '여섯': '6',
+            '칠': '7', '일곱': '7',
+            '팔': '8', '여덟': '8',
+            '구': '9', '아홉': '9',
+            '십': '10', '열': '10'
+        };
+
+        // Check exact matches first
+        if (map[text.trim()]) return map[text.trim()];
+
+        // Replace text numbers with digits
+        let normalized = text;
+        Object.entries(map).forEach(([key, val]) => {
+            normalized = normalized.replace(new RegExp(key, 'g'), val);
+        });
+
+        // Extract digits
+        return normalized.replace(/[^0-9]/g, '');
     };
 
     const startListening = () => {
@@ -148,12 +176,25 @@ export default function Home() {
             recognition.continuous = false;
             recognition.interimResults = false;
 
-            recognition.onstart = () => setIsListening(true);
-            recognition.onend = () => setIsListening(false);
+            recognition.onstart = () => { };
+            recognition.onend = () => {
+                // Auto-restart logic
+                // Small delay to prevent CPU spinning if error occurs repeatedly
+                setTimeout(() => {
+                    try {
+                        recognition.start();
+                    } catch (e) {
+                        console.log("Recognition restart ignored");
+                    }
+                }, 200);
+            };
 
             recognition.onresult = (event: any) => {
                 const transcript = event.results[0][0].transcript;
-                const number = transcript.replace(/[^0-9]/g, '');
+                console.log("Mic Transcript:", transcript);
+
+                const number = normalizeInput(transcript);
+
                 if (number) {
                     setUserAnswer(number);
                     checkAnswer(number);
@@ -240,6 +281,11 @@ export default function Home() {
     // Initial Load & Auto-start STT
     useEffect(() => {
         prefetchProblem();
+        // startListening(); // Removed to avoid double start with next useEffect
+
+        return () => {
+            stopAudio();
+        }
     }, []);
 
     // Auto-start STT when problem changes (with browser policy safety)
@@ -256,8 +302,7 @@ export default function Home() {
     // Logic
     const prefetchProblem = async () => {
         try {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://math-ai-backend-div6osazmq-uc.a.run.app';
-            const res = await fetch(`${apiUrl}/generate-problem`, {
+            const res = await fetch(`${API_URL}/generate-problem`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ user_id: user }),
@@ -277,11 +322,10 @@ export default function Home() {
         setExplanation(null);
         setIsCorrect(null);
         setUserAnswer('');
-        setShowText(false);
+        stopAudio(); // Stop any leftover audio
 
         try {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://math-ai-backend-div6osazmq-uc.a.run.app';
-            const res = await fetch(`${apiUrl}/generate-problem`, {
+            const res = await fetch(`${API_URL}/generate-problem`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ user_id: user }),
@@ -310,8 +354,7 @@ export default function Home() {
 
     const handleLevelChange = async (newLevel: number) => {
         try {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://math-ai-backend-div6osazmq-uc.a.run.app';
-            await fetch(`${apiUrl}/update-level`, {
+            await fetch(`${API_URL}/update-level`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ user_id: user, new_level: newLevel }),
@@ -334,7 +377,6 @@ export default function Home() {
         setExplanation(null);
         setIsCorrect(null);
         setUserAnswer('');
-        setShowText(false);
         setProblem(nextProblem);
 
         setNextProblem(null);
@@ -360,13 +402,11 @@ export default function Home() {
         setIsCorrect(correct);
 
         if (correct) {
-            setCorrectCount(prev => prev + 1);
             confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 }, colors: ['#FFD700', '#FF69B4', '#00BFFF'] });
             setFeedback("정답입니다! 🎉");
 
             try {
-                const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://math-ai-backend-div6osazmq-uc.a.run.app';
-                const res = await fetch(`${apiUrl}/submit-result`, {
+                const res = await fetch(`${API_URL}/submit-result`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ user_id: user, problem_id: problem.id, is_correct: true }),
@@ -404,15 +444,14 @@ export default function Home() {
             setTimeout(() => setShake(false), 500);
             setLoading(true);
             try {
-                const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://math-ai-backend-div6osazmq-uc.a.run.app';
-                await fetch(`${apiUrl}/submit-result`, {
+                await fetch(`${API_URL}/submit-result`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ user_id: user, problem_id: problem.id, is_correct: false }),
                     cache: 'no-store'
                 });
 
-                const res = await fetch(`${apiUrl}/explain-error`, {
+                const res = await fetch(`${API_URL}/explain-error`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -438,15 +477,8 @@ export default function Home() {
         }
     };
 
-    const renderVisualization = () => {
-        if (!explanation?.visual_items) return null;
-        return explanation.animation_type === 'ten_frame'
-            ? <TenFrame items={explanation.visual_items} />
-            : <Counting items={explanation.visual_items} />;
-    };
-
     return (
-        <main className="min-h-screen bg-[#FFF9F0] font-sans selection:bg-orange-200 selection:text-orange-900 relative overflow-hidden">
+        <main className="min-h-[100dvh] bg-[#FFF9F0] font-sans selection:bg-orange-200 selection:text-orange-900 relative">
             {/* Background Elements */}
             <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
                 <div className="absolute top-[-10%] right-[-5%] w-[300px] h-[300px] md:w-[600px] md:h-[600px] bg-yellow-300/30 rounded-full blur-3xl animate-pulse" />
@@ -471,7 +503,7 @@ export default function Home() {
                     </div>
 
                     {/* Stats Card */}
-                    <div className="flex items-center gap-2 md:gap-6 bg-white/80 backdrop-blur-sm px-3 py-2 md:px-6 md:py-3 rounded-2xl shadow-sm border border-orange-100">
+                    <div className="flex items-center gap-2 md:gap-6 bg-white/80 backdrop-blur-sm px-3 py-2 md:px-6 md:py-3 rounded-2xl shadow-sm border border-orange-100 mb-0 md:mb-0">
                         <div className="flex flex-col items-center">
                             <span className="text-[10px] md:text-xs font-bold text-slate-400 uppercase tracking-wider">Level</span>
                             <span className="text-lg md:text-2xl font-black text-orange-500">
@@ -545,6 +577,18 @@ export default function Home() {
                                             transition={{ duration: 0.5 }}
                                         />
                                     </div>
+
+                                    {/* Timer Bar */}
+                                    {timerActive && (
+                                        <div className="h-2 bg-slate-100 w-full overflow-hidden">
+                                            <motion.div
+                                                className="h-full bg-red-400"
+                                                initial={{ width: "100%" }}
+                                                animate={{ width: "0%" }}
+                                                transition={{ duration: timeLeft, ease: "linear" }}
+                                            />
+                                        </div>
+                                    )}
 
                                     <div className="p-6 md:p-12 flex flex-col items-center gap-6 md:gap-10">
                                         <div className="flex flex-col items-center gap-2 md:gap-4">
@@ -636,6 +680,7 @@ export default function Home() {
                         exit={{ opacity: 0 }}
                         className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end md:items-center justify-center p-0 md:p-4"
                         onClick={() => {
+                            stopAudio();
                             setExplanation(null);
                             fetchProblem();
                         }}
@@ -657,6 +702,7 @@ export default function Home() {
                                 </div>
                                 <button
                                     onClick={() => {
+                                        stopAudio();
                                         setExplanation(null);
                                         fetchProblem();
                                     }}
@@ -699,6 +745,7 @@ export default function Home() {
 
                                         <button
                                             onClick={() => {
+                                                stopAudio();
                                                 setExplanation(null);
                                                 fetchProblem();
                                             }}

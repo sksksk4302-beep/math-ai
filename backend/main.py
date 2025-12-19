@@ -333,75 +333,81 @@ async def submit_result(request: SubmitResultRequest):
     try:
         user_ref = db.collection("users").document(request.user_id)
         
-        # Direct update without transaction for debugging/compatibility
-        snapshot = user_ref.get()
-        if not snapshot.exists:
-            # 초기화
-            user_data = {
-                "current_level": 1, 
-                "level_stickers": 0, 
-                "total_stickers": 0,
-                "recent_results": []
-            }
-            # Create document
-            user_ref.set(user_data)
-        else:
-            user_data = snapshot.to_dict()
+        # Transaction to ensure atomic updates
+        @firestore.transactional
+        def update_user_stats(transaction, ref):
+            snapshot = transaction.get(ref)
+            if not snapshot.exists:
+                # 초기화: level 1, level_stickers 0, total_stickers 0
+                user_data = {
+                    "current_level": 1, 
+                    "level_stickers": 0, 
+                    "total_stickers": 0,
+                    "recent_results": []
+                }
+            else:
+                user_data = snapshot.to_dict()
 
-        current_level = user_data.get("current_level", 1)
-        level_stickers = user_data.get("level_stickers", 0)
-        total_stickers = user_data.get("total_stickers", 0)
-        recent_results = user_data.get("recent_results", [])
+            current_level = user_data.get("current_level", 1)
+            level_stickers = user_data.get("level_stickers", 0)
+            total_stickers = user_data.get("total_stickers", 0)
+            recent_results = user_data.get("recent_results", [])
 
-        # 1. Update History
-        try:
-            db.collection("history").add({
-                "user_id": request.user_id,
-                "problem_id": request.problem_id,
-                "is_correct": request.is_correct,
-                "timestamp": google_firestore.SERVER_TIMESTAMP
-            })
-        except Exception as e:
-            print(f"⚠️ History logging failed: {e}")
+            # 1. Update History
+            try:
+                db.collection("history").add({
+                    "user_id": request.user_id,
+                    "problem_id": request.problem_id,
+                    "is_correct": request.is_correct,
+                    "timestamp": firestore.SERVER_TIMESTAMP
+                })
+            except Exception as e:
+                print(f"⚠️ History logging failed: {e}")
 
-        # 2. Update Recent Results
-        recent_results.append(request.is_correct)
-        if len(recent_results) > 10:
-            recent_results.pop(0)
+            # 2. Update Recent Results (참고용으로 유지)
+            recent_results.append(request.is_correct)
+            if len(recent_results) > 10:
+                recent_results.pop(0)
 
-        grand_finale = False
-        levelup_event = False
+            grand_finale = False
+            levelup_event = False
 
-        # 3. Reward Logic
-        if request.is_correct:
-            level_stickers += 1
-            total_stickers += 1
+            # 3. Reward & Leveling Logic (New Rule: 5 stickers per level)
+            if request.is_correct:
+                level_stickers += 1
+                total_stickers += 1
+                
+                # Check for Level Up or Grand Finale
+                if level_stickers >= 5:
+                    if current_level < 5:
+                        current_level += 1
+                        level_stickers = 0 # Reset for new level
+                        levelup_event = True
+                        print(f"🆙 Level Up! {request.user_id} -> Lv.{current_level}")
+                    else:
+                        # Level 5 and 5 stickers collected -> Grand Finale!
+                        grand_finale = True
+                        print(f"🎉 Grand Finale! {request.user_id} completed all levels!")
             
-            if level_stickers >= 5:
-                if current_level < 5:
-                    current_level += 1
-                    level_stickers = 0
-                    levelup_event = True
-                    print(f"🆙 Level Up! {request.user_id} -> Lv.{current_level}")
-                else:
-                    grand_finale = True
-                    print(f"🎉 Grand Finale! {request.user_id} completed all levels!")
-        
-        # Update DB
-        user_ref.update({
-            "current_level": current_level,
-            "level_stickers": level_stickers,
-            "total_stickers": total_stickers,
-            "recent_results": recent_results
-        })
+            # 오답일 경우 스티커 차감 로직은 없음 (격려 위주)
 
-        return {
-            "new_level": current_level,
-            "level_stickers": level_stickers,
-            "total_stickers": total_stickers,
-            "grand_finale": grand_finale,
-            "audio_base64": synthesize_text("정답입니다! 참 잘했어요!") if request.is_correct else None
-        }
+            transaction.update(ref, {
+                "current_level": current_level,
+                "level_stickers": level_stickers,
+                "total_stickers": total_stickers,
+                "recent_results": recent_results
+            })
+
+            return {
+                "new_level": current_level,
+                "level_stickers": level_stickers,
+                "total_stickers": total_stickers,
+                "grand_finale": grand_finale,
+                "audio_base64": synthesize_text("정답입니다! 참 잘했어요!") if request.is_correct else None
+            }
+            
+        return update_user_stats(db.transaction(), user_ref)
+
     except Exception as e:
         print(f"🔥 결과 저장 실패: {e}")
         # Return default values instead of raising error
