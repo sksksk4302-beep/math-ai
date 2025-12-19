@@ -578,18 +578,6 @@ export default function Home() {
                                         />
                                     </div>
 
-                                    {/* Timer Bar */}
-                                    {timerActive && (
-                                        <div className="h-2 bg-slate-100 w-full overflow-hidden">
-                                            <motion.div
-                                                className="h-full bg-red-400"
-                                                initial={{ width: "100%" }}
-                                                animate={{ width: "0%" }}
-                                                transition={{ duration: timeLeft, ease: "linear" }}
-                                            />
-                                        </div>
-                                    )}
-
                                     <div className="p-6 md:p-12 flex flex-col items-center gap-6 md:gap-10">
                                         <div className="flex flex-col items-center gap-2 md:gap-4">
                                             <div className="flex items-center gap-3">
@@ -620,18 +608,18 @@ export default function Home() {
                                             <div className="absolute right-4 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
                                                 <span className="text-2xl md:text-4xl">✏️</span>
                                             </div>
-                                        </div>
 
-                                        {/* Mic Button */}
-                                        <button
-                                            onClick={startListening}
-                                            disabled={isListening || isProcessingStt}
-                                            className={`absolute -right-16 md:-right-24 top-1/2 -translate-y-1/2 w-12 h-12 md:w-16 md:h-16 rounded-full flex items-center justify-center shadow-lg transition-all ${isListening ? 'bg-red-500 animate-pulse text-white' : isProcessingStt ? 'bg-blue-500 animate-bounce text-white' : 'bg-white text-slate-400 hover:text-orange-500'}`}
-                                        >
-                                            <span className="text-2xl md:text-3xl">
-                                                {isProcessingStt ? '⏳' : isListening ? '👂' : '🎤'}
-                                            </span>
-                                        </button>
+                                            {/* Mic Button - Positioned inside input for visibility */}
+                                            <button
+                                                onClick={startListening}
+                                                disabled={isListening || isProcessingStt}
+                                                className={`absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center shadow-md transition-all z-10 ${isListening ? 'bg-red-500 animate-pulse text-white' : isProcessingStt ? 'bg-blue-500 animate-bounce text-white' : 'bg-white text-slate-400 hover:text-orange-500 border border-slate-200'}`}
+                                            >
+                                                <span className="text-xl md:text-2xl">
+                                                    {isProcessingStt ? '⏳' : isListening ? '👂' : '🎤'}
+                                                </span>
+                                            </button>
+                                        </div>
 
                                         {/* Action Buttons */}
                                         <div className="flex gap-3 md:gap-4 w-full">
