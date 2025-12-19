@@ -6,4 +6,5 @@ firebase-admin
 google-cloud-texttospeech
 google-cloud-speech
 python-multipart>=0.0.6
+google-cloud-firestore
 

@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import firebase_admin
 from firebase_admin import credentials, firestore
+from google.cloud import firestore as google_firestore
 import vertexai
 from vertexai.generative_models import GenerativeModel
 from google.cloud import texttospeech
@@ -36,7 +37,9 @@ if not firebase_admin._apps:
 
 # Firestore 클라이언트
 try:
-    db = firestore.client()
+    # Use google-cloud-firestore directly for named database support
+    db = google_firestore.Client(project=PROJECT_ID, database='math-ai')
+    print("✅ Connected to Firestore database: math-ai")
 except Exception as e:
     print(f"❌ Firestore connection failed: {e}")
     db = None
@@ -330,82 +333,75 @@ async def submit_result(request: SubmitResultRequest):
     try:
         user_ref = db.collection("users").document(request.user_id)
         
-        # Transaction to ensure atomic updates
-        @firestore.transactional
-        def update_user_stats(transaction, ref):
-            snapshot = transaction.get(ref)
-            if not snapshot.exists:
-                # 초기화: level 1, level_stickers 0, total_stickers 0
-                user_data = {
-                    "current_level": 1, 
-                    "level_stickers": 0, 
-                    "total_stickers": 0,
-                    "recent_results": []
-                }
-            else:
-                user_data = snapshot.to_dict()
-
-            current_level = user_data.get("current_level", 1)
-            level_stickers = user_data.get("level_stickers", 0)
-            total_stickers = user_data.get("total_stickers", 0)
-            recent_results = user_data.get("recent_results", [])
-
-            # 1. Update History
-            try:
-                db.collection("history").add({
-                    "user_id": request.user_id,
-                    "problem_id": request.problem_id,
-                    "is_correct": request.is_correct,
-                    "timestamp": firestore.SERVER_TIMESTAMP
-                })
-            except Exception as e:
-                print(f"⚠️ History logging failed: {e}")
-
-            # 2. Update Recent Results (참고용으로 유지)
-            recent_results.append(request.is_correct)
-            if len(recent_results) > 10:
-                recent_results.pop(0)
-
-            grand_finale = False
-            levelup_event = False
-
-            # 3. Reward & Leveling Logic (New Rule: 5 stickers per level)
-            if request.is_correct:
-                level_stickers += 1
-                total_stickers += 1
-                
-                # Check for Level Up or Grand Finale
-                if level_stickers >= 5:
-                    if current_level < 5:
-                        current_level += 1
-                        level_stickers = 0 # Reset for new level
-                        levelup_event = True
-                        print(f"🆙 Level Up! {request.user_id} -> Lv.{current_level}")
-                    else:
-                        # Level 5 and 5 stickers collected -> Grand Finale!
-                        grand_finale = True
-                        print(f"🎉 Grand Finale! {request.user_id} completed all levels!")
-            
-            # 오답일 경우 스티커 차감 로직은 없음 (격려 위주)
-
-            transaction.update(ref, {
-                "current_level": current_level,
-                "level_stickers": level_stickers,
-                "total_stickers": total_stickers,
-                "recent_results": recent_results
-            })
-
-            return {
-                "new_level": current_level,
-                "level_stickers": level_stickers,
-                "total_stickers": total_stickers,
-                "grand_finale": grand_finale,
-                "audio_base64": synthesize_text("정답입니다! 참 잘했어요!") if request.is_correct else None
+        # Direct update without transaction for debugging/compatibility
+        snapshot = user_ref.get()
+        if not snapshot.exists:
+            # 초기화
+            user_data = {
+                "current_level": 1, 
+                "level_stickers": 0, 
+                "total_stickers": 0,
+                "recent_results": []
             }
+            # Create document
+            user_ref.set(user_data)
+        else:
+            user_data = snapshot.to_dict()
 
-        transaction = db.transaction()
-        result = update_user_stats(transaction, user_ref)
-        return result
+        current_level = user_data.get("current_level", 1)
+        level_stickers = user_data.get("level_stickers", 0)
+        total_stickers = user_data.get("total_stickers", 0)
+        recent_results = user_data.get("recent_results", [])
+
+        # 1. Update History
+        try:
+            db.collection("history").add({
+                "user_id": request.user_id,
+                "problem_id": request.problem_id,
+                "is_correct": request.is_correct,
+                "timestamp": google_firestore.SERVER_TIMESTAMP
+            })
+        except Exception as e:
+            print(f"⚠️ History logging failed: {e}")
+
+        # 2. Update Recent Results
+        recent_results.append(request.is_correct)
+        if len(recent_results) > 10:
+            recent_results.pop(0)
+
+        grand_finale = False
+        levelup_event = False
+
+        # 3. Reward Logic
+        if request.is_correct:
+            level_stickers += 1
+            total_stickers += 1
+            
+            if level_stickers >= 5:
+                if current_level < 5:
+                    current_level += 1
+                    level_stickers = 0
+                    levelup_event = True
+                    print(f"🆙 Level Up! {request.user_id} -> Lv.{current_level}")
+                else:
+                    grand_finale = True
+                    print(f"🎉 Grand Finale! {request.user_id} completed all levels!")
+        
+        # Update DB
+        user_ref.update({
+            "current_level": current_level,
+            "level_stickers": level_stickers,
+            "total_stickers": total_stickers,
+            "recent_results": recent_results
+        })
+
+        return {
+            "new_level": current_level,
+            "level_stickers": level_stickers,
+            "total_stickers": total_stickers,
+            "grand_finale": grand_finale,
+            "audio_base64": synthesize_text("정답입니다! 참 잘했어요!") if request.is_correct else None
+        }
     except Exception as e:
         print(f"🔥 결과 저장 실패: {e}")
         # Return default values instead of raising error
@@ -493,6 +489,32 @@ async def get_timeout_audio():
     text = "시간이 다 됐어요! 선생님이랑 같이 풀어볼까요?"
     audio_base64 = synthesize_text(text)
     return {"audio_base64": audio_base64, "message": text}
+
+@app.get("/debug-db")
+async def debug_db():
+    results = {}
+    
+    # 1. Try Default DB
+    try:
+        db_default = firestore.client()
+        # Try a read operation
+        docs = list(db_default.collection("test").limit(1).stream())
+        results["default"] = "Connected (Read Success)"
+    except Exception as e:
+        results["default"] = f"Failed: {str(e)}"
+
+    # 2. Try 'math-ai' DB
+    try:
+        db_named = google_firestore.Client(project=PROJECT_ID, database='math-ai')
+        docs = list(db_named.collection("test").limit(1).stream())
+        results["math-ai"] = "Connected (Read Success)"
+    except Exception as e:
+        results["math-ai"] = f"Failed: {str(e)}"
+        
+    # 3. Current Global DB Status
+    results["current_global_db"] = "Connected" if db else "None"
+    
+    return results
 
 @app.post("/stt")
 async def speech_to_text(file: UploadFile = File(...)):

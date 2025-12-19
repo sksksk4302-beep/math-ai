@@ -50,7 +50,7 @@ function parseProblem(problemStr: string): { num1: number; num2: number; operato
 
 export default function Home() {
     // State
-    const [user] = useState("test_user_1");
+    const [user] = useState("test_user_3");
     const [userName] = useState("한울이");
     const [problem, setProblem] = useState<Problem | null>(INITIAL_PROBLEM);
     const [nextProblem, setNextProblem] = useState<Problem | null>(null);
@@ -63,19 +63,20 @@ export default function Home() {
     const [shake, setShake] = useState(false);
     const [correctCount, setCorrectCount] = useState(0);
     const TOTAL_GOAL = 30;
-    const GIFT_THRESHOLD = 25;
+    const GIFT_THRESHOLD = 5;
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
     const [isListening, setIsListening] = useState(false);
     const [timeLeft, setTimeLeft] = useState(0);
     const [timerActive, setTimerActive] = useState(false);
     const [showText, setShowText] = useState(false);
     const [showTimeoutTransition, setShowTimeoutTransition] = useState(false);
+    const [isProcessingStt, setIsProcessingStt] = useState(false);
 
     // 1. Reset & Start Timer when problem changes
     useEffect(() => {
         if (problem) {
-            // New Rule: Base 10s + 5s per level
-            const limit = 10 + (problem.level - 1) * 5;
+            // New Rule: Base 15s + 5s per level
+            const limit = 15 + (problem.level - 1) * 5;
             setTimeLeft(limit);
             setTimerActive(true);
         }
@@ -132,15 +133,19 @@ export default function Home() {
     const playAudio = (base64Audio: string) => {
         const url = `data:audio/mp3;base64,${base64Audio}`;
         setAudioUrl(url);
+        // Direct play attempt for better mobile support if triggered by user action
+        const audio = new Audio(url);
+        audio.play().catch(e => console.log("Auto-play blocked, waiting for interaction:", e));
     };
 
     const startListening = () => {
+        if (isListening || isProcessingStt) return;
         setIsListening(true);
 
         if ('webkitSpeechRecognition' in window) {
             const recognition = new (window as any).webkitSpeechRecognition();
             recognition.lang = 'ko-KR';
-            recognition.continuous = false; // Changed to false for better one-shot interaction
+            recognition.continuous = false;
             recognition.interimResults = false;
 
             recognition.onstart = () => setIsListening(true);
@@ -155,11 +160,21 @@ export default function Home() {
                 }
             };
 
+            recognition.onerror = (event: any) => {
+                console.error("Speech recognition error", event.error);
+                setIsListening(false);
+                // If not-allowed or service-not-allowed, try fallback
+                if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+                    handleVoiceRecord();
+                }
+            };
+
             try {
                 recognition.start();
             } catch (e) {
                 console.error("Mic start error:", e);
                 setIsListening(false);
+                handleVoiceRecord();
             }
         } else {
             // Fallback: MediaRecorder -> Backend STT
@@ -168,6 +183,7 @@ export default function Home() {
     };
 
     const handleVoiceRecord = async () => {
+        setIsListening(true);
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
@@ -178,6 +194,7 @@ export default function Home() {
             };
 
             mediaRecorder.onstop = async () => {
+                setIsProcessingStt(true);
                 const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
                 const formData = new FormData();
                 formData.append('file', audioBlob, 'recording.webm');
@@ -196,11 +213,12 @@ export default function Home() {
                     }
                 } catch (e) {
                     console.error("STT Failed:", e);
+                } finally {
+                    setIsProcessingStt(false);
+                    setIsListening(false);
+                    // Stop all tracks
+                    stream.getTracks().forEach(track => track.stop());
                 }
-                setIsListening(false);
-
-                // Stop all tracks
-                stream.getTracks().forEach(track => track.stop());
             };
 
             mediaRecorder.start();
@@ -215,14 +233,25 @@ export default function Home() {
         } catch (e) {
             console.error("Mic access denied:", e);
             setIsListening(false);
+            alert("마이크 권한이 필요해요! 설정에서 허용해주세요. 🎤");
         }
     };
 
-    // Initial Load & Mic Start
+    // Initial Load & Auto-start STT
     useEffect(() => {
         prefetchProblem();
-        startListening();
     }, []);
+
+    // Auto-start STT when problem changes (with browser policy safety)
+    useEffect(() => {
+        if (problem && !loading && !explanation) {
+            // Small delay to ensure UI is ready
+            const timer = setTimeout(() => {
+                startListening();
+            }, 500);
+            return () => clearTimeout(timer);
+        }
+    }, [problem, loading, explanation]);
 
     // Logic
     const prefetchProblem = async () => {
@@ -344,7 +373,15 @@ export default function Home() {
                     cache: 'no-store'
                 });
                 const data = await res.json();
-                setStats({ level: data.new_level, stickers: data.level_stickers, totalStickers: data.total_stickers });
+                console.log("Submit result:", data);
+                console.log("Previous stats:", stats);
+                console.log("New stickers from backend:", data.level_stickers);
+
+                setStats({
+                    level: data.new_level,
+                    stickers: data.level_stickers, // Ensure this maps to level_stickers
+                    totalStickers: data.total_stickers
+                });
 
                 if (data.new_level > stats.level) {
                     setFeedback(`Lv.${data.new_level}로 넘어가겠습니다!! 🚀`);
@@ -454,6 +491,24 @@ export default function Home() {
                     </div>
                 </header>
 
+                {/* Gift Box Progress Bar - Hidden on Mobile */}
+                <div className="hidden md:block w-full max-w-md mx-auto mb-6 px-4">
+                    <div className="flex justify-between items-end mb-2">
+                        <span className="text-sm font-bold text-slate-500">선물 상자까지</span>
+                        <span className="text-xs font-bold text-orange-400">{stats.stickers} / {GIFT_THRESHOLD}</span>
+                    </div>
+                    <div className="h-6 bg-white rounded-full border-4 border-orange-100 p-1 relative">
+                        <motion.div
+                            className="h-full bg-gradient-to-r from-yellow-400 to-orange-500 rounded-full"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${Math.min((stats.stickers / GIFT_THRESHOLD) * 100, 100)}%` }}
+                        />
+                        <div className="absolute -right-3 -top-3 text-2xl animate-bounce">
+                            🎁
+                        </div>
+                    </div>
+                </div>
+
                 {/* Main Content */}
                 <div className="flex-1 flex flex-col items-center justify-center w-full max-w-2xl mx-auto">
                     <AnimatePresence mode="wait">
@@ -479,15 +534,29 @@ export default function Home() {
                                 className="w-full"
                             >
                                 <div className="bg-white rounded-3xl shadow-xl border-4 border-white overflow-hidden relative">
-                                    {/* Decorative Top Bar */}
-                                    <div className="h-3 md:h-4 bg-gradient-to-r from-orange-400 via-yellow-400 to-orange-400" />
+                                    {/* Timer Bar */}
+                                    <div className="h-3 md:h-4 bg-slate-100 relative overflow-hidden">
+                                        <motion.div
+                                            className="absolute top-0 left-0 h-full bg-gradient-to-r from-green-400 to-green-500"
+                                            animate={{
+                                                width: `${(timeLeft / (15 + ((problem?.level || 1) - 1) * 5)) * 100}%`,
+                                                backgroundColor: timeLeft <= 5 ? '#EF4444' : '#22C55E'
+                                            }}
+                                            transition={{ duration: 0.5 }}
+                                        />
+                                    </div>
 
                                     <div className="p-6 md:p-12 flex flex-col items-center gap-6 md:gap-10">
-                                        {/* Problem Display */}
                                         <div className="flex flex-col items-center gap-2 md:gap-4">
-                                            <span className="px-3 py-1 md:px-4 md:py-1.5 bg-slate-100 text-slate-500 rounded-full text-xs md:text-sm font-bold tracking-wide">
-                                                문제 {stats.totalStickers + 1}
-                                            </span>
+                                            <div className="flex items-center gap-3">
+                                                <span className="px-3 py-1 md:px-4 md:py-1.5 bg-slate-100 text-slate-500 rounded-full text-xs md:text-sm font-bold tracking-wide">
+                                                    문제 {stats.totalStickers + 1}
+                                                </span>
+                                                <div className={`flex items-center gap-1 font-mono font-black text-xl ${timeLeft <= 5 ? 'text-red-500 animate-pulse' : 'text-slate-300'}`}>
+                                                    <span>⏰</span>
+                                                    <span>{timeLeft}</span>
+                                                </div>
+                                            </div>
                                             <h2 className="text-5xl md:text-8xl font-black text-slate-800 tracking-tighter drop-shadow-sm">
                                                 {problem?.problem}
                                             </h2>
@@ -499,20 +568,33 @@ export default function Home() {
                                                 type="number"
                                                 value={userAnswer}
                                                 onChange={(e) => setUserAnswer(e.target.value)}
-                                                onKeyDown={(e) => e.key === 'Enter' && checkAnswer()}
+                                                onKeyDown={(e) => e.key === 'Enter' && !loading && timeLeft > 0 && checkAnswer()}
                                                 placeholder="?"
-                                                className="w-full h-16 md:h-24 text-center text-3xl md:text-5xl font-bold bg-slate-50 border-4 border-slate-200 rounded-2xl focus:border-orange-400 focus:bg-white focus:ring-4 focus:ring-orange-100 transition-all outline-none placeholder-slate-300"
+                                                disabled={loading || timeLeft === 0}
+                                                className="w-full h-16 md:h-24 text-center text-3xl md:text-5xl font-bold bg-slate-50 border-4 border-slate-200 rounded-2xl focus:border-orange-400 focus:bg-white focus:ring-4 focus:ring-orange-100 transition-all outline-none placeholder-slate-300 disabled:opacity-50 disabled:bg-slate-100"
                                             />
                                             <div className="absolute right-4 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
                                                 <span className="text-2xl md:text-4xl">✏️</span>
                                             </div>
                                         </div>
 
+                                        {/* Mic Button */}
+                                        <button
+                                            onClick={startListening}
+                                            disabled={isListening || isProcessingStt}
+                                            className={`absolute -right-16 md:-right-24 top-1/2 -translate-y-1/2 w-12 h-12 md:w-16 md:h-16 rounded-full flex items-center justify-center shadow-lg transition-all ${isListening ? 'bg-red-500 animate-pulse text-white' : isProcessingStt ? 'bg-blue-500 animate-bounce text-white' : 'bg-white text-slate-400 hover:text-orange-500'}`}
+                                        >
+                                            <span className="text-2xl md:text-3xl">
+                                                {isProcessingStt ? '⏳' : isListening ? '👂' : '🎤'}
+                                            </span>
+                                        </button>
+
                                         {/* Action Buttons */}
                                         <div className="flex gap-3 md:gap-4 w-full">
                                             <button
                                                 onClick={() => checkAnswer()}
-                                                className="flex-1 bg-gradient-to-b from-orange-400 to-orange-500 hover:from-orange-500 hover:to-orange-600 text-white text-lg md:text-2xl font-black py-4 md:py-6 rounded-2xl shadow-lg shadow-orange-200 active:scale-95 transition-all flex items-center justify-center gap-2 md:gap-3"
+                                                disabled={loading || timeLeft === 0}
+                                                className="flex-1 bg-gradient-to-b from-orange-400 to-orange-500 hover:from-orange-500 hover:to-orange-600 text-white text-lg md:text-2xl font-black py-4 md:py-6 rounded-2xl shadow-lg shadow-orange-200 active:scale-95 transition-all flex items-center justify-center gap-2 md:gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
                                             >
                                                 <span>정답 확인</span>
                                                 <span>🚀</span>
