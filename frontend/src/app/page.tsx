@@ -122,7 +122,7 @@ export default function Home() {
             }, 500);
             return () => clearTimeout(timer);
         }
-    }, [problem, loading, explanation]);
+    }, [problem, loading, explanation, startListening]);
 
     // API 함수들
     const prefetchProblem = async () => {
@@ -230,6 +230,7 @@ export default function Home() {
                 console.log("🎯 백엔드 응답:", data);
                 console.log("💫 현재 stats:", stats);
                 console.log("⭐ total_stickers:", data.total_stickers);
+                console.log("📊 Setting new stats - Level:", data.new_level, "LevelStickers:", data.level_stickers, "TotalStickers:", data.total_stickers);
 
                 setStats({
                     level: data.new_level,

@@ -432,20 +432,20 @@ async def submit_result(request: SubmitResultRequest):
             grand_finale = False
             levelup_event = False
 
-            # 3. Reward & Leveling Logic (New Rule: 5 stickers per level)
+            # 3. Reward & Leveling Logic (New Rule: 10 stickers per level)
             if request.is_correct:
                 level_stickers += 1
                 total_stickers += 1
                 
                 # Check for Level Up or Grand Finale
-                if level_stickers >= 5:
+                if level_stickers >= 10:
                     if current_level < 5:
                         current_level += 1
                         level_stickers = 0 # Reset for new level
                         levelup_event = True
                         print(f"🆙 Level Up! {request.user_id} -> Lv.{current_level}")
                     else:
-                        # Level 5 and 5 stickers collected -> Grand Finale!
+                        # Level 5 and 10 stickers collected -> Grand Finale!
                         grand_finale = True
                         print(f"🎉 Grand Finale! {request.user_id} completed all levels!")
             
