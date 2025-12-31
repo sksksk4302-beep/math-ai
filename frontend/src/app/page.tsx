@@ -227,6 +227,10 @@ export default function Home() {
                 });
                 const data = await res.json();
 
+                console.log("🎯 백엔드 응답:", data);
+                console.log("💫 현재 stats:", stats);
+                console.log("⭐ total_stickers:", data.total_stickers);
+
                 setStats({
                     level: data.new_level,
                     stickers: data.level_stickers,
@@ -403,16 +407,27 @@ export default function Home() {
                                     </div>
 
                                     <div className="p-6 md:p-12 flex flex-col items-center gap-6 md:gap-10">
-                                        {/* 답변 대기 메시지 */}
-                                        {waitingForAnswer && (
-                                            <motion.div
-                                                initial={{ opacity: 0, scale: 0.9 }}
-                                                animate={{ opacity: 1, scale: 1 }}
-                                                className="text-orange-500 font-bold text-lg md:text-xl animate-pulse"
-                                            >
-                                                🎤 정답을 말씀하세요!
-                                            </motion.div>
-                                        )}
+                                        {/* 답변 대기 메시지 - STT 준비 완료 시에만 표시 */}
+                                        <div className="h-8 flex items-center justify-center">
+                                            {waitingForAnswer && isListening && (
+                                                <motion.div
+                                                    initial={{ opacity: 0, scale: 0.9 }}
+                                                    animate={{ opacity: 1, scale: 1 }}
+                                                    className="text-orange-500 font-bold text-lg md:text-xl animate-pulse"
+                                                >
+                                                    🎤 정답을 말씀하세요!
+                                                </motion.div>
+                                            )}
+                                            {waitingForAnswer && !isListening && (
+                                                <motion.div
+                                                    initial={{ opacity: 0 }}
+                                                    animate={{ opacity: 1 }}
+                                                    className="text-slate-400 font-medium text-sm md:text-base"
+                                                >
+                                                    👂 귀를 기울이고 있어요...
+                                                </motion.div>
+                                            )}
+                                        </div>
 
                                         <div className="flex flex-col items-center gap-2 md:gap-4">
                                             <div className="flex items-center gap-3">
