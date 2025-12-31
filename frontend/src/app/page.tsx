@@ -1,47 +1,17 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
-import Counting from '../components/visualizations/Counting';
-import TenFrame from '../components/visualizations/TenFrame';
 import VisualExplanation from '../components/VisualExplanation';
-
-// Types
-interface Problem {
-    id: string;
-    problem: string;
-    answer: number;
-    level: number;
-}
-
-interface Stats {
-    level: number;
-    stickers: number;
-    totalStickers: number;
-}
-
-interface Explanation {
-    message: string;
-    animation_type: string;
-    visual_items: string[];
-    correct_answer: number;
-    audio_base64?: string;
-    problem?: string; // Add optional problem field
-}
-
-const INITIAL_PROBLEM: Problem = {
-    id: 'init-1',
-    problem: '2 + 3',
-    answer: 5,
-    level: 1
-};
-
-// Config
-const API_URL = 'https://math-ai-backend-dlgntatyiq-uc.a.run.app';
+import AchievementPopup from '../components/AchievementPopup';
+import { Problem, Stats, Explanation, INITIAL_PROBLEM, API_URL, GIFT_THRESHOLD, TOTAL_GOAL } from '../lib/types';
+import { useAudio } from '../lib/hooks/useAudio';
+import { useTimer } from '../lib/hooks/useTimer';
+import { useSpeechRecognition } from '../lib/hooks/useSpeechRecognition';
 
 export default function Home() {
-    // Generate unique session ID on mount for reset behavior
+    // 사용자 및 기본 상태
     const [user] = useState(() => {
         if (typeof window !== 'undefined') {
             return "user_" + Math.random().toString(36).substr(2, 9);
@@ -49,59 +19,33 @@ export default function Home() {
         return "test_user_1";
     });
     const [userName] = useState("한울이");
+
+    // 문제 및 통계 상태
     const [problem, setProblem] = useState<Problem | null>(INITIAL_PROBLEM);
     const [nextProblem, setNextProblem] = useState<Problem | null>(null);
     const [stats, setStats] = useState<Stats>({ level: 1, stickers: 0, totalStickers: 0 });
+
+    // UI 상태
     const [userAnswer, setUserAnswer] = useState('');
     const [feedback, setFeedback] = useState<string>('');
     const [explanation, setExplanation] = useState<Explanation | null>(null);
     const [loading, setLoading] = useState(false);
     const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
     const [shake, setShake] = useState(false);
-    const [correctCount, setCorrectCount] = useState(0);
-    const TOTAL_GOAL = 30;
-    const GIFT_THRESHOLD = 5;
-    const [audioUrl, setAudioUrl] = useState<string | null>(null);
-    const [isListening, setIsListening] = useState(false);
-
-    // Audio Ref
-    const audioRef = useRef<HTMLAudioElement | null>(null);
-    const [timeLeft, setTimeLeft] = useState(0);
-    const [timerActive, setTimerActive] = useState(false);
     const [showTimeoutTransition, setShowTimeoutTransition] = useState(false);
-    const [isProcessingStt, setIsProcessingStt] = useState(false);
 
-    // 1. Reset & Start Timer when problem changes
-    useEffect(() => {
-        if (problem) {
-            // New Rule: Base 15s + 5s per level
-            const limit = 15 + (problem.level - 1) * 5;
-            setTimeLeft(limit);
-            setTimerActive(true);
-        }
-    }, [problem]);
+    // 새로운 기능 상태
+    const [showAchievement, setShowAchievement] = useState(false);
+    const [waitingForAnswer, setWaitingForAnswer] = useState(false);
+    const [stickerIncrement, setStickerIncrement] = useState(0);
 
-    // 2. Countdown Logic
-    useEffect(() => {
-        if (!timerActive) return;
-
-        if (timeLeft === 0) {
-            handleTimeOver();
-            return;
-        }
-
-        const timer = setInterval(() => {
-            setTimeLeft((prev) => prev - 1);
-        }, 1000);
-
-        return () => clearInterval(timer);
-    }, [timeLeft, timerActive]);
+    // 커스텀 훅들
+    const { playAudio, stopAudio } = useAudio();
 
     const handleTimeOver = async () => {
         setTimerActive(false);
         setShowTimeoutTransition(true);
 
-        // Play Teacher Voice
         try {
             const res = await fetch(`${API_URL}/timeout-audio`, { cache: 'no-store' });
             const data = await res.json();
@@ -112,7 +56,6 @@ export default function Home() {
             console.error("Timeout audio failed:", e);
         }
 
-        // Wait for audio (approx 3.5s) then transition
         setTimeout(() => {
             setShowTimeoutTransition(false);
             setFeedback("시간 초과! 땡! ⏰");
@@ -120,178 +63,57 @@ export default function Home() {
         }, 3500);
     };
 
-    const stopAudio = () => {
-        if (audioRef.current) {
-            audioRef.current.pause();
-            audioRef.current = null;
+    const { timeLeft, timerActive, setTimerActive } = useTimer({
+        problem,
+        waitingForAnswer,
+        onTimeOver: handleTimeOver
+    });
+
+    const handleSttResult = (number: string) => {
+        setUserAnswer(number);
+        checkAnswer(number);
+    };
+
+    const { isListening, isProcessingStt, startListening } = useSpeechRecognition({
+        onResult: handleSttResult
+    });
+
+    // 답변 입력 시작 시 타이머 활성화
+    useEffect(() => {
+        if (waitingForAnswer && userAnswer.length > 0) {
+            setTimerActive(true);
+            setWaitingForAnswer(false);
         }
-    };
+    }, [userAnswer, waitingForAnswer, setTimerActive]);
 
-    const playAudio = (base64Audio: string) => {
-        stopAudio(); // Stop previous audio if any
-        const url = `data:audio/mp3;base64,${base64Audio}`;
-        setAudioUrl(url);
+    // 별 스티커 애니메이션
+    useEffect(() => {
+        if (stickerIncrement > 0) {
+            const timer = setTimeout(() => setStickerIncrement(0), 1000);
+            return () => clearTimeout(timer);
+        }
+    }, [stickerIncrement]);
 
-        const audio = new Audio(url);
-        audioRef.current = audio;
-        audio.play().catch(e => console.log("Auto-play blocked, waiting for interaction:", e));
-    };
-
-    // Helper to normalize Korean numbers
-    const normalizeInput = (text: string): string => {
-        const map: { [key: string]: string } = {
-            '영': '0', '공': '0',
-            '일': '1', '하나': '1',
-            '이': '2', '둘': '2',
-            '삼': '3', '셋': '3',
-            '사': '4', '넷': '4',
-            '오': '5', '다섯': '5',
-            '육': '6', '여섯': '6',
-            '칠': '7', '일곱': '7',
-            '팔': '8', '여덟': '8',
-            '구': '9', '아홉': '9',
-            '십': '10', '열': '10'
-        };
-
-        // Check exact matches first
-        if (map[text.trim()]) return map[text.trim()];
-
-        // Replace text numbers with digits
-        let normalized = text;
-        Object.entries(map).forEach(([key, val]) => {
-            normalized = normalized.replace(new RegExp(key, 'g'), val);
-        });
-
-        // Extract digits
-        return normalized.replace(/[^0-9]/g, '');
-    };
-
-    const startListening = () => {
-        if (isListening || isProcessingStt) return;
-        setIsListening(true);
-
-        if ('webkitSpeechRecognition' in window) {
-            const recognition = new (window as any).webkitSpeechRecognition();
-            recognition.lang = 'ko-KR';
-            recognition.continuous = false;
-            recognition.interimResults = false;
-
-            recognition.onstart = () => { };
-            recognition.onend = () => {
-                // Auto-restart logic
-                // Small delay to prevent CPU spinning if error occurs repeatedly
-                setTimeout(() => {
-                    try {
-                        recognition.start();
-                    } catch (e) {
-                        console.log("Recognition restart ignored");
-                    }
-                }, 200);
-            };
-
-            recognition.onresult = (event: any) => {
-                const transcript = event.results[0][0].transcript;
-                console.log("Mic Transcript:", transcript);
-
-                const number = normalizeInput(transcript);
-
-                if (number) {
-                    setUserAnswer(number);
-                    checkAnswer(number);
-                }
-            };
-
-            recognition.onerror = (event: any) => {
-                console.error("Speech recognition error", event.error);
-                setIsListening(false);
-                // If not-allowed or service-not-allowed, try fallback
-                if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-                    handleVoiceRecord();
-                }
-            };
-
-            try {
-                recognition.start();
-            } catch (e) {
-                console.error("Mic start error:", e);
-                setIsListening(false);
-                handleVoiceRecord();
+    // 25문제 달성 체크
+    useEffect(() => {
+        if (stats.totalStickers === 25 && !showAchievement) {
+            const alreadyShown = localStorage.getItem('achievement_25_shown');
+            if (!alreadyShown) {
+                setShowAchievement(true);
+                localStorage.setItem('achievement_25_shown', 'true');
             }
-        } else {
-            // Fallback: MediaRecorder -> Backend STT
-            handleVoiceRecord();
         }
-    };
+    }, [stats.totalStickers, showAchievement]);
 
-    const handleVoiceRecord = async () => {
-        setIsListening(true);
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-            const audioChunks: Blob[] = [];
-
-            mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) audioChunks.push(event.data);
-            };
-
-            mediaRecorder.onstop = async () => {
-                setIsProcessingStt(true);
-                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                const formData = new FormData();
-                formData.append('file', audioBlob, 'recording.webm');
-
-                try {
-                    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://math-ai-backend-div6osazmq-uc.a.run.app';
-                    const res = await fetch(`${apiUrl}/stt`, {
-                        method: 'POST',
-                        body: formData,
-                        cache: 'no-store'
-                    });
-                    const data = await res.json();
-                    if (data.number) {
-                        setUserAnswer(data.number);
-                        checkAnswer(data.number);
-                    }
-                } catch (e) {
-                    console.error("STT Failed:", e);
-                } finally {
-                    setIsProcessingStt(false);
-                    setIsListening(false);
-                    // Stop all tracks
-                    stream.getTracks().forEach(track => track.stop());
-                }
-            };
-
-            mediaRecorder.start();
-
-            // Record for 2.5 seconds
-            setTimeout(() => {
-                if (mediaRecorder.state === 'recording') {
-                    mediaRecorder.stop();
-                }
-            }, 2500);
-
-        } catch (e) {
-            console.error("Mic access denied:", e);
-            setIsListening(false);
-            alert("마이크 권한이 필요해요! 설정에서 허용해주세요. 🎤");
-        }
-    };
-
-    // Initial Load & Auto-start STT
+    // 초기 로드 및 자동 STT 시작
     useEffect(() => {
         prefetchProblem();
-        // startListening(); // Removed to avoid double start with next useEffect
-
-        return () => {
-            stopAudio();
-        }
+        return () => stopAudio();
     }, []);
 
-    // Auto-start STT when problem changes (with browser policy safety)
+    // 문제 변경 시 STT 자동 시작
     useEffect(() => {
         if (problem && !loading && !explanation) {
-            // Small delay to ensure UI is ready
             const timer = setTimeout(() => {
                 startListening();
             }, 500);
@@ -299,7 +121,7 @@ export default function Home() {
         }
     }, [problem, loading, explanation]);
 
-    // Logic
+    // API 함수들
     const prefetchProblem = async () => {
         try {
             const res = await fetch(`${API_URL}/generate-problem`, {
@@ -322,7 +144,7 @@ export default function Home() {
         setExplanation(null);
         setIsCorrect(null);
         setUserAnswer('');
-        stopAudio(); // Stop any leftover audio
+        stopAudio();
 
         try {
             const res = await fetch(`${API_URL}/generate-problem`, {
@@ -334,7 +156,6 @@ export default function Home() {
             const data = await res.json();
             setProblem(data);
 
-            // Sync stats from backend response
             if (data.level) {
                 setStats({
                     level: data.level,
@@ -352,21 +173,6 @@ export default function Home() {
         }
     };
 
-    const handleLevelChange = async (newLevel: number) => {
-        try {
-            await fetch(`${API_URL}/update-level`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id: user, new_level: newLevel }),
-                cache: 'no-store'
-            });
-            // Force fetch new problem for the new level
-            fetchProblem();
-        } catch (error) {
-            console.error("Level update failed:", error);
-        }
-    };
-
     const handleNextProblem = (forceRefresh = false) => {
         if (forceRefresh || !nextProblem) {
             fetchProblem();
@@ -378,6 +184,7 @@ export default function Home() {
         setIsCorrect(null);
         setUserAnswer('');
         setProblem(nextProblem);
+        setWaitingForAnswer(true); // 새 문제 시작 시 답변 대기
 
         setNextProblem(null);
         setLoading(false);
@@ -388,7 +195,7 @@ export default function Home() {
         if (!problem) return;
         if (!isTimeout && (!answerOverride && !userAnswer)) return;
 
-        setTimerActive(false); // Stop timer
+        setTimerActive(false);
 
         let correct = false;
         let answerNum = 0;
@@ -413,19 +220,17 @@ export default function Home() {
                     cache: 'no-store'
                 });
                 const data = await res.json();
-                console.log("Submit result:", data);
-                console.log("Previous stats:", stats);
-                console.log("New stickers from backend:", data.level_stickers);
 
                 setStats({
                     level: data.new_level,
-                    stickers: data.level_stickers, // Ensure this maps to level_stickers
+                    stickers: data.level_stickers,
                     totalStickers: data.total_stickers
                 });
 
+                setStickerIncrement(1); // 별 애니메이션 트리거
+
                 if (data.new_level > stats.level) {
                     setFeedback(`Lv.${data.new_level}로 넘어가겠습니다!! 🚀`);
-                    playAudio(data.audio_base64); // Play level up audio if available
                 } else if (data.levelup_event) {
                     setFeedback("레벨 업! 🚀");
                 }
@@ -462,7 +267,6 @@ export default function Home() {
                     cache: 'no-store'
                 });
                 const data = await res.json();
-                // Inject problem string into explanation data
                 setExplanation({ ...data, problem: problem.problem });
                 if (data.audio_base64) {
                     playAudio(data.audio_base64);
@@ -502,8 +306,8 @@ export default function Home() {
                         </div>
                     </div>
 
-                    {/* Stats Card */}
-                    <div className="flex items-center gap-2 md:gap-6 bg-white/80 backdrop-blur-sm px-3 py-2 md:px-6 md:py-3 rounded-2xl shadow-sm border border-orange-100 mb-0 md:mb-0">
+                    {/* Stats Card with Mic Status */}
+                    <div className="flex items-center gap-2 md:gap-6 bg-white/80 backdrop-blur-sm px-3 py-2 md:px-6 md:py-3 rounded-2xl shadow-sm border border-orange-100">
                         <div className="flex flex-col items-center">
                             <span className="text-[10px] md:text-xs font-bold text-slate-400 uppercase tracking-wider">Level</span>
                             <span className="text-lg md:text-2xl font-black text-orange-500">
@@ -511,13 +315,41 @@ export default function Home() {
                             </span>
                         </div>
                         <div className="w-px h-6 md:h-8 bg-slate-200" />
-                        <div className="flex flex-col items-center">
+                        <div className="flex flex-col items-center relative">
                             <span className="text-[10px] md:text-xs font-bold text-slate-400 uppercase tracking-wider">Stickers</span>
                             <div className="flex items-center gap-1">
                                 <span className="text-lg md:text-2xl">⭐</span>
                                 <span className="text-lg md:text-2xl font-black text-slate-700">
                                     {stats.stickers}
                                 </span>
+
+                                {/* 마이크 상태 표시 */}
+                                {isListening && !isProcessingStt && (
+                                    <span className="text-lg md:text-xl animate-pulse ml-1">
+                                        🎤
+                                    </span>
+                                )}
+                                {isProcessingStt && (
+                                    <span className="text-lg md:text-xl animate-bounce ml-1">
+                                        ⏳
+                                    </span>
+                                )}
+
+                                {/* 별 증가 애니메이션 */}
+                                <AnimatePresence>
+                                    {stickerIncrement > 0 && (
+                                        <motion.span
+                                            key="sticker-inc"
+                                            initial={{ opacity: 1, y: 0, scale: 1 }}
+                                            animate={{ opacity: 0, y: -30, scale: 1.5 }}
+                                            exit={{ opacity: 0 }}
+                                            transition={{ duration: 1 }}
+                                            className="absolute top-0 text-2xl font-black text-yellow-500"
+                                        >
+                                            +1
+                                        </motion.span>
+                                    )}
+                                </AnimatePresence>
                             </div>
                         </div>
                     </div>
@@ -527,13 +359,13 @@ export default function Home() {
                 <div className="hidden md:block w-full max-w-md mx-auto mb-6 px-4">
                     <div className="flex justify-between items-end mb-2">
                         <span className="text-sm font-bold text-slate-500">선물 상자까지</span>
-                        <span className="text-xs font-bold text-orange-400">{stats.stickers} / {GIFT_THRESHOLD}</span>
+                        <span className="text-xs font-bold text-orange-400">{stats.totalStickers} / {GIFT_THRESHOLD}</span>
                     </div>
                     <div className="h-6 bg-white rounded-full border-4 border-orange-100 p-1 relative">
                         <motion.div
                             className="h-full bg-gradient-to-r from-yellow-400 to-orange-500 rounded-full"
                             initial={{ width: 0 }}
-                            animate={{ width: `${Math.min((stats.stickers / GIFT_THRESHOLD) * 100, 100)}%` }}
+                            animate={{ width: `${Math.min((stats.totalStickers / GIFT_THRESHOLD) * 100, 100)}%` }}
                         />
                         <div className="absolute -right-3 -top-3 text-2xl animate-bounce">
                             🎁
@@ -579,6 +411,17 @@ export default function Home() {
                                     </div>
 
                                     <div className="p-6 md:p-12 flex flex-col items-center gap-6 md:gap-10">
+                                        {/* 답변 대기 메시지 */}
+                                        {waitingForAnswer && (
+                                            <motion.div
+                                                initial={{ opacity: 0, scale: 0.9 }}
+                                                animate={{ opacity: 1, scale: 1 }}
+                                                className="text-orange-500 font-bold text-lg md:text-xl animate-pulse"
+                                            >
+                                                🎤 정답을 말씀하세요!
+                                            </motion.div>
+                                        )}
+
                                         <div className="flex flex-col items-center gap-2 md:gap-4">
                                             <div className="flex items-center gap-3">
                                                 <span className="px-3 py-1 md:px-4 md:py-1.5 bg-slate-100 text-slate-500 rounded-full text-xs md:text-sm font-bold tracking-wide">
@@ -594,7 +437,7 @@ export default function Home() {
                                             </h2>
                                         </div>
 
-                                        {/* Input Area */}
+                                        {/* Input Area - 마이크 버튼 제거됨 */}
                                         <div className="w-full max-w-xs md:max-w-sm relative group">
                                             <input
                                                 type="number"
@@ -608,17 +451,6 @@ export default function Home() {
                                             <div className="absolute right-4 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
                                                 <span className="text-2xl md:text-4xl">✏️</span>
                                             </div>
-
-                                            {/* Mic Button - Positioned inside input for visibility */}
-                                            <button
-                                                onClick={startListening}
-                                                disabled={isListening || isProcessingStt}
-                                                className={`absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center shadow-md transition-all z-10 ${isListening ? 'bg-red-500 animate-pulse text-white' : isProcessingStt ? 'bg-blue-500 animate-bounce text-white' : 'bg-white text-slate-400 hover:text-orange-500 border border-slate-200'}`}
-                                            >
-                                                <span className="text-xl md:text-2xl">
-                                                    {isProcessingStt ? '⏳' : isListening ? '👂' : '🎤'}
-                                                </span>
-                                            </button>
                                         </div>
 
                                         {/* Action Buttons */}
@@ -626,8 +458,7 @@ export default function Home() {
                                             <button
                                                 onClick={() => checkAnswer()}
                                                 disabled={loading || timeLeft === 0}
-                                                className="flex-1 bg-gradient-to-b from-orange-400 to-orange-500 hover:from-orange-500 hover:to-orange-600 text-white text-lg md:text-2xl font-black py-4 md:py-6 rounded-2xl shadow-lg shadow-orange-200 active:scale-95 transition-all flex items-center justify-center gap-2 md:gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
-                                            >
+                                                className="flex-1 bg-gradient-to-b from-orange-400 to-orange-500 hover:from-orange-500 hover:to-orange-600 text-white text-lg md:text-2xl font-black py-4 md:py-6 rounded-2xl shadow-lg shadow-orange-200 active:scale-95 transition-all flex items-center justify-center gap-2 md:gap-3 disabled:opacity-50 disabled:cursor-not-allowed">
                                                 <span>정답 확인</span>
                                                 <span>🚀</span>
                                             </button>
@@ -650,8 +481,7 @@ export default function Home() {
                                 px-6 py-4 md:px-8 md:py-6 rounded-2xl shadow-2xl flex items-center justify-center gap-3 md:gap-4 text-lg md:text-2xl font-bold border-4
                                 ${feedback.includes('정답')
                                     ? 'bg-green-500 border-green-400 text-white'
-                                    : 'bg-white border-red-100 text-red-500'}
-                            `}
+                                    : 'bg-white border-red-100 text-red-500'}`}
                         >
                             {feedback}
                         </motion.div>
@@ -748,6 +578,12 @@ export default function Home() {
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            {/* Achievement Popup */}
+            <AchievementPopup
+                isOpen={showAchievement}
+                onClose={() => setShowAchievement(false)}
+            />
         </main>
     );
 }

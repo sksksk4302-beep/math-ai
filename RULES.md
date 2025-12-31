@@ -1,2 +1,17 @@
-# Output Language
-Always respond in Korean. Even if the code is in English, explain everything in Korean (한국어).
+# 프로젝트 규칙
+
+## 언어 설정
+
+모든 대화 및 문서는 **한국어**로 작성합니다.
+
+## 코드 스타일
+
+- TypeScript/React 코드: 영어 변수명 및 주석 사용
+- 문서 (README, 계획서 등): 한국어 작성
+- 커밋 메시지: 한국어 작성
+
+## AI 어시스턴트 규칙
+
+- 사용자와의 모든 대화는 한국어로 진행
+- 기술 문서 및 구현 계획도 한국어로 작성
+- 코드 주석은 필요시 한국어로 작성
