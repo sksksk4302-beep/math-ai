@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
 import VisualExplanation from '../components/VisualExplanation';
 import AchievementPopup from '../components/AchievementPopup';
+import LevelUpPopup from '../components/LevelUpPopup';
 import { Problem, Stats, Explanation, INITIAL_PROBLEM, API_URL, GIFT_THRESHOLD, TOTAL_GOAL } from '../lib/types';
 import { useAudio } from '../lib/hooks/useAudio';
 import { useTimer } from '../lib/hooks/useTimer';
@@ -36,6 +37,8 @@ export default function Home() {
 
     // 새로운 기능 상태
     const [showAchievement, setShowAchievement] = useState(false);
+    const [showLevelUp, setShowLevelUp] = useState(false);
+    const [newLevel, setNewLevel] = useState(1);
     const [waitingForAnswer, setWaitingForAnswer] = useState(false);
     const [stickerIncrement, setStickerIncrement] = useState(0);
 
@@ -71,7 +74,7 @@ export default function Home() {
 
     const handleSttResult = (number: string) => {
         setUserAnswer(number);
-        checkAnswer(number);
+        // STT는 입력만 하고 자동 제출하지 않음
     };
 
     const { isListening, isProcessingStt, startListening } = useSpeechRecognition({
@@ -197,6 +200,9 @@ export default function Home() {
 
         setTimerActive(false);
 
+        // 현재 문제를 저장 (오답 설명용)
+        const currentProblem = problem;
+
         let correct = false;
         let answerNum = 0;
 
@@ -230,6 +236,8 @@ export default function Home() {
                 setStickerIncrement(1); // 별 애니메이션 트리거
 
                 if (data.new_level > stats.level) {
+                    setNewLevel(data.new_level);
+                    setShowLevelUp(true);
                     setFeedback(`Lv.${data.new_level}로 넘어가겠습니다!! 🚀`);
                 } else if (data.levelup_event) {
                     setFeedback("레벨 업! 🚀");
@@ -260,14 +268,14 @@ export default function Home() {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        problem: problem.problem,
+                        problem: currentProblem.problem,
                         wrong_answer: isTimeout ? "시간초과" : (answerOverride || userAnswer),
                         user_name: userName
                     }),
                     cache: 'no-store'
                 });
                 const data = await res.json();
-                setExplanation({ ...data, problem: problem.problem });
+                setExplanation({ ...data, problem: currentProblem.problem });
                 if (data.audio_base64) {
                     playAudio(data.audio_base64);
                 }
@@ -316,11 +324,11 @@ export default function Home() {
                         </div>
                         <div className="w-px h-6 md:h-8 bg-slate-200" />
                         <div className="flex flex-col items-center relative">
-                            <span className="text-[10px] md:text-xs font-bold text-slate-400 uppercase tracking-wider">Stickers</span>
+                            <span className="text-[10px] md:text-xs font-bold text-slate-400 uppercase tracking-wider">Total</span>
                             <div className="flex items-center gap-1">
                                 <span className="text-lg md:text-2xl">⭐</span>
                                 <span className="text-lg md:text-2xl font-black text-slate-700">
-                                    {stats.stickers}
+                                    {stats.totalStickers}
                                 </span>
 
                                 {/* 마이크 상태 표시 */}
@@ -355,23 +363,7 @@ export default function Home() {
                     </div>
                 </header>
 
-                {/* Gift Box Progress Bar - Hidden on Mobile */}
-                <div className="hidden md:block w-full max-w-md mx-auto mb-6 px-4">
-                    <div className="flex justify-between items-end mb-2">
-                        <span className="text-sm font-bold text-slate-500">선물 상자까지</span>
-                        <span className="text-xs font-bold text-orange-400">{stats.totalStickers} / {GIFT_THRESHOLD}</span>
-                    </div>
-                    <div className="h-6 bg-white rounded-full border-4 border-orange-100 p-1 relative">
-                        <motion.div
-                            className="h-full bg-gradient-to-r from-yellow-400 to-orange-500 rounded-full"
-                            initial={{ width: 0 }}
-                            animate={{ width: `${Math.min((stats.totalStickers / GIFT_THRESHOLD) * 100, 100)}%` }}
-                        />
-                        <div className="absolute -right-3 -top-3 text-2xl animate-bounce">
-                            🎁
-                        </div>
-                    </div>
-                </div>
+
 
                 {/* Main Content */}
                 <div className="flex-1 flex flex-col items-center justify-center w-full max-w-2xl mx-auto">
@@ -583,6 +575,14 @@ export default function Home() {
             <AchievementPopup
                 isOpen={showAchievement}
                 onClose={() => setShowAchievement(false)}
+            />
+
+            {/* Level Up Popup */}
+            <LevelUpPopup
+                isOpen={showLevelUp}
+                level={newLevel}
+                userName={userName}
+                onClose={() => setShowLevelUp(false)}
             />
         </main>
     );
