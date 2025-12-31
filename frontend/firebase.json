@@ -1,5 +1,6 @@
 {
     "hosting": {
+        "site": "math-ai-479306",
         "public": "out",
         "ignore": [
             "firebase.json",
