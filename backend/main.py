@@ -522,6 +522,36 @@ async def debug_db():
     
     return results
 
+def normalize_korean_number(text: str) -> str:
+    """한글 숫자를 아라비아 숫자로 변환"""
+    korean_to_digit = {
+        '영': '0', '공': '0',
+        '일': '1', '하나': '1',
+        '이': '2', '둘': '2',
+        '삼': '3', '셋': '3',
+        '사': '4', '넷': '4',
+        '오': '5', '다섯': '5',
+        '육': '6', '여섯': '6',
+        '칠': '7', '일곱': '7',
+        '팔': '8', '여덟': '8',
+        '구': '9', '아홉': '9',
+        '십': '10', '열': '10'
+    }
+    
+    # 완전 일치 확인
+    text_clean = text.strip()
+    if text_clean in korean_to_digit:
+        return korean_to_digit[text_clean]
+    
+    # 한글 숫자 치환
+    normalized = text
+    for korean, digit in korean_to_digit.items():
+        normalized = normalized.replace(korean, digit)
+    
+    # 숫자만 추출
+    import re
+    return re.sub(r'[^0-9]', '', normalized)
+
 @app.post("/stt")
 async def speech_to_text(file: UploadFile = File(...)):
     if not speech_client:
@@ -543,13 +573,16 @@ async def speech_to_text(file: UploadFile = File(...)):
         transcript = ""
         for result in response.results:
             transcript += result.alternatives[0].transcript
-            
-        # 숫자만 추출
-        import re
-        number = re.sub(r'[^0-9]', '', transcript)
+        
+        print(f"🎤 STT Transcript: {transcript}")
+        
+        # 한글 숫자를 아라비아 숫자로 변환
+        number = normalize_korean_number(transcript)
+        
+        print(f"🔢 Converted Number: {number}")
         
         return {"text": transcript, "number": number}
     except Exception as e:
         print(f"STT Error: {e}")
-        # Fallback for other encodings if needed, or just return error
         raise HTTPException(status_code=500, detail=str(e))
+
