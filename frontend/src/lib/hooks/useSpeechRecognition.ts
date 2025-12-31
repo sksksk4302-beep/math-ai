@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { normalizeKoreanNumber } from '../utils/korean';
 
 interface UseSpeechRecognitionProps {
@@ -8,11 +8,41 @@ interface UseSpeechRecognitionProps {
 export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) => {
     const [isListening, setIsListening] = useState(false);
     const [isProcessingStt, setIsProcessingStt] = useState(false);
+    const streamRef = useRef<MediaStream | null>(null);
+
+    // 1. 컴포넌트 마운트 시 마이크 스트림 미리 확보 (Warm-up)
+    useEffect(() => {
+        const initStream = async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                streamRef.current = stream;
+                console.log("🎤 Microphone stream initialized");
+            } catch (e) {
+                console.error("Microphone access denied or not available:", e);
+            }
+        };
+
+        initStream();
+
+        // 언마운트 시 스트림 정리
+        return () => {
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(track => track.stop());
+                streamRef.current = null;
+            }
+        };
+    }, []);
 
     const handleVoiceRecord = useCallback(async () => {
         setIsListening(true);
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            // 스트림 재사용 또는 새로 요청
+            let stream = streamRef.current;
+            if (!stream || !stream.active) {
+                stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                streamRef.current = stream;
+            }
+
             const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
             const audioChunks: Blob[] = [];
 
@@ -42,7 +72,7 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
                 } finally {
                     setIsProcessingStt(false);
                     setIsListening(false);
-                    stream.getTracks().forEach(track => track.stop());
+                    // 스트림을 닫지 않고 유지함 (재사용 위해)
                 }
             };
 
@@ -52,7 +82,7 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
                 if (mediaRecorder.state === 'recording') {
                     mediaRecorder.stop();
                 }
-            }, 3500); // 3.5초로 증가
+            }, 3500);
 
         } catch (e) {
             console.error("Mic access denied:", e);
@@ -71,15 +101,13 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
             recognition.continuous = false;
             recognition.interimResults = false;
 
-            recognition.onstart = () => { };
+            recognition.onstart = () => {
+                setIsListening(true); // 명시적 상태 업데이트
+            };
+
             recognition.onend = () => {
-                setTimeout(() => {
-                    try {
-                        recognition.start();
-                    } catch (e) {
-                        console.log("Recognition restart ignored");
-                    }
-                }, 200);
+                // 자동 재시작 로직 제거 (필요 시 버튼으로 다시 시작)
+                setIsListening(false);
             };
 
             recognition.onresult = (event: any) => {
@@ -97,7 +125,7 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
                 console.error("Speech recognition error", event.error);
                 setIsListening(false);
                 if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-                    handleVoiceRecord();
+                    handleVoiceRecord(); // 폴백
                 }
             };
 
