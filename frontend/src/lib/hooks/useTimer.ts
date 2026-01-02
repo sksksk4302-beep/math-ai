@@ -16,7 +16,7 @@ export const useTimer = ({ problem, waitingForAnswer, onTimeOver }: UseTimerProp
         if (problem) {
             const limit = 15 + (problem.level - 1) * 5;
             setTimeLeft(limit);
-            setTimerActive(!waitingForAnswer); // 답변 대기 중이면 타이머 정지
+            setTimerActive(true); // 답변 대기 여부와 상관없이 타이머 시작 (타임어택)
         }
     }, [problem, waitingForAnswer]);
 

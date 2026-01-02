@@ -304,7 +304,7 @@ export default function Home() {
 
             <div className="relative z-10 max-w-6xl mx-auto px-4 py-4 md:px-8 md:py-8 min-h-screen flex flex-col">
                 {/* Header */}
-                <header className="flex justify-between items-center mb-6 md:mb-12">
+                <header className="flex justify-between items-center mb-6 md:mb-12 relative z-50">
                     <div className="flex items-center gap-2 md:gap-4">
                         <div className="w-10 h-10 md:w-16 md:h-16 bg-white rounded-2xl shadow-lg flex items-center justify-center text-2xl md:text-4xl border-2 border-orange-100">
                             🎓
@@ -320,11 +320,11 @@ export default function Home() {
                     </div>
 
                     {/* Stats Card with Mic Status */}
-                    <div className="flex items-center gap-2 md:gap-6 bg-white/80 backdrop-blur-sm px-3 py-2 md:px-6 md:py-3 rounded-2xl shadow-sm border border-orange-100">
+                    <div className="flex items-center gap-2 md:gap-6 bg-white backdrop-blur-sm px-3 py-2 md:px-6 md:py-3 rounded-2xl shadow-sm border border-orange-100">
                         <div className="flex flex-col items-center">
                             <span className="text-[10px] md:text-xs font-bold text-slate-400 uppercase tracking-wider">Level</span>
                             <span className="text-lg md:text-2xl font-black text-orange-500">
-                                {stats.level}
+                                {stats.level || 1}
                             </span>
                         </div>
                         <div className="w-px h-6 md:h-8 bg-slate-200" />
@@ -333,7 +333,7 @@ export default function Home() {
                             <div className="flex items-center gap-1">
                                 <span className="text-lg md:text-2xl">⭐</span>
                                 <span className="text-lg md:text-2xl font-black text-slate-700">
-                                    {stats.totalStickers}
+                                    {stats.totalStickers || 0}
                                 </span>
 
                                 {/* 마이크 상태 표시 */}
