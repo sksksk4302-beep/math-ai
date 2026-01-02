@@ -4,12 +4,20 @@ export interface Problem {
     problem: string;
     answer: number;
     level: number;
+    source?: 'gemini' | 'fallback';
 }
 
 export interface Stats {
     level: number;
     stickers: number;
     totalStickers: number;
+}
+
+export interface Session {
+    session_id: string;
+    current_level: number;
+    level_stickers: number;
+    total_stickers: number;
 }
 
 export interface Explanation {

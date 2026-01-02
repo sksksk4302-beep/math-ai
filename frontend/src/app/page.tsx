@@ -6,6 +6,7 @@ import confetti from 'canvas-confetti';
 import VisualExplanation from '../components/VisualExplanation';
 import AchievementPopup from '../components/AchievementPopup';
 import LevelUpPopup from '../components/LevelUpPopup';
+import IntroScreen from '../components/IntroScreen';
 import { Problem, Stats, Explanation, INITIAL_PROBLEM, API_URL, GIFT_THRESHOLD, TOTAL_GOAL } from '../lib/types';
 import { useAudio } from '../lib/hooks/useAudio';
 import { useTimer } from '../lib/hooks/useTimer';
@@ -15,17 +16,27 @@ export default function Home() {
     // 사용자 및 기본 상태
     const [user, setUser] = useState('');
     const [userName] = useState("한울이");
+    const [sessionId, setSessionId] = useState<string | null>(null);
+    const [viewMode, setViewMode] = useState<'intro' | 'game'>('intro');
+    const [hasHistory, setHasHistory] = useState(false);
 
-    // 초기 사용자 설정
+    // 초기 사용자 설정 및 세션 확인
     useEffect(() => {
         const storedUser = localStorage.getItem('math_ai_user_id');
-        if (storedUser) {
-            setUser(storedUser);
-        } else {
-            const newUser = "user_" + Math.random().toString(36).substr(2, 9);
-            localStorage.setItem('math_ai_user_id', newUser);
-            setUser(newUser);
+        let userId = storedUser;
+
+        if (!userId) {
+            userId = "user_" + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('math_ai_user_id', userId);
         }
+        setUser(userId);
+
+        // 이전 세션 기록 확인 (여기서는 간단히 localStorage에 마지막 세션 ID가 있는지로 판단하거나, API로 확인 가능)
+        // 실제로는 continue-session API를 호출해봐야 정확하지만, UI 표시를 위해 localStorage 활용 가능
+        // 하지만 여기서는 API 호출 없이 continue-session이 실패하면 새로 시작하도록 처리
+        // 또는 user 정보 조회 시 last_session_id 확인 가능.
+        // 편의상 항상 활성화하고 클릭 시 체크
+        setHasHistory(true);
     }, []);
 
     // 문제 및 통계 상태
@@ -37,7 +48,7 @@ export default function Home() {
     const [userAnswer, setUserAnswer] = useState('');
     const [feedback, setFeedback] = useState<string>('');
     const [explanation, setExplanation] = useState<Explanation | null>(null);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(false); // 초기 로딩 false로 변경 (Intro 화면 먼저 보여줌)
     const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
     const [shake, setShake] = useState(false);
     const [showTimeoutTransition, setShowTimeoutTransition] = useState(false);
@@ -115,31 +126,79 @@ export default function Home() {
         }
     }, [stats.totalStickers, showAchievement]);
 
-    // 초기 로드: 사용자 ID가 설정되면 문제와 통계 가져오기
-    useEffect(() => {
-        if (user) {
-            fetchProblem();
+    // 세션 시작/이어하기 핸들러
+    const handleStartNew = async () => {
+        setLoading(true);
+        try {
+            const res = await fetch(`${API_URL}/start-session`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: user }),
+            });
+            const data = await res.json();
+            setSessionId(data.session_id);
+            setStats({
+                level: data.current_level,
+                stickers: data.level_stickers,
+                totalStickers: data.total_stickers
+            });
+            setViewMode('game');
+            fetchProblem(data.session_id);
+        } catch (e) {
+            console.error("Start session failed:", e);
+            alert("게임을 시작할 수 없어요 ㅠㅠ");
+            setLoading(false);
         }
-        return () => stopAudio();
-    }, [user]);
+    };
+
+    const handleContinue = async () => {
+        setLoading(true);
+        try {
+            const res = await fetch(`${API_URL}/continue-session`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: user }),
+            });
+            const data = await res.json();
+
+            if (data.status === 'no_history') {
+                alert("이전 게임 기록이 없어서 새로 시작할게요!");
+                handleStartNew();
+                return;
+            }
+
+            setSessionId(data.session_id);
+            setStats({
+                level: data.current_level,
+                stickers: data.level_stickers,
+                totalStickers: data.total_stickers
+            });
+            setViewMode('game');
+            fetchProblem(data.session_id);
+        } catch (e) {
+            console.error("Continue session failed:", e);
+            alert("이어하기를 실패했어요. 새로 시작할게요!");
+            handleStartNew();
+        }
+    };
 
     // 문제 변경 시 STT 자동 시작
     useEffect(() => {
-        if (problem && !loading && !explanation) {
+        if (problem && !loading && !explanation && viewMode === 'game') {
             const timer = setTimeout(() => {
                 startListening();
             }, 500);
             return () => clearTimeout(timer);
         }
-    }, [problem, loading, explanation, startListening]);
+    }, [problem, loading, explanation, startListening, viewMode]);
 
     // API 함수들
-    const prefetchProblem = async () => {
+    const prefetchProblem = async (currentSessionId: string) => {
         try {
             const res = await fetch(`${API_URL}/generate-problem`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id: user }),
+                body: JSON.stringify({ user_id: user, session_id: currentSessionId }),
                 cache: 'no-store'
             });
             const data = await res.json();
@@ -150,7 +209,10 @@ export default function Home() {
         }
     };
 
-    const fetchProblem = async () => {
+    const fetchProblem = async (currentSessionId?: string) => {
+        const activeSessionId = currentSessionId || sessionId;
+        if (!activeSessionId) return;
+
         setLoading(true);
         setFeedback('');
         setExplanation(null);
@@ -162,7 +224,7 @@ export default function Home() {
             const res = await fetch(`${API_URL}/generate-problem`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id: user }),
+                body: JSON.stringify({ user_id: user, session_id: activeSessionId }),
                 cache: 'no-store'
             });
             const data = await res.json();
@@ -176,7 +238,7 @@ export default function Home() {
                 });
             }
 
-            prefetchProblem();
+            prefetchProblem(activeSessionId);
         } catch (error) {
             console.error("Fetch failed:", error);
             setFeedback("잠시 문제가 생겼어요 🔧");
@@ -200,11 +262,11 @@ export default function Home() {
 
         setNextProblem(null);
         setLoading(false);
-        prefetchProblem();
+        if (sessionId) prefetchProblem(sessionId);
     };
 
     const checkAnswer = async (answerOverride?: string, isTimeout = false) => {
-        if (!problem) return;
+        if (!problem || !sessionId) return;
         if (!isTimeout && (!answerOverride && !userAnswer)) return;
 
         setTimerActive(false);
@@ -231,7 +293,16 @@ export default function Home() {
                 const res = await fetch(`${API_URL}/submit-result`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ user_id: user, problem_id: problem.id, is_correct: true }),
+                    body: JSON.stringify({
+                        user_id: user,
+                        session_id: sessionId,
+                        problem_id: problem.id,
+                        problem: problem.problem,
+                        answer: problem.answer,
+                        user_answer: answerOverride || userAnswer,
+                        is_correct: true,
+                        source: problem.source || 'unknown'
+                    }),
                     cache: 'no-store'
                 });
                 const data = await res.json();
@@ -274,7 +345,16 @@ export default function Home() {
                 await fetch(`${API_URL}/submit-result`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ user_id: user, problem_id: problem.id, is_correct: false }),
+                    body: JSON.stringify({
+                        user_id: user,
+                        session_id: sessionId,
+                        problem_id: problem.id,
+                        problem: problem.problem,
+                        answer: problem.answer,
+                        user_answer: isTimeout ? "TIMEOUT" : (answerOverride || userAnswer),
+                        is_correct: false,
+                        source: problem.source || 'unknown'
+                    }),
                     cache: 'no-store'
                 });
 
@@ -302,6 +382,17 @@ export default function Home() {
             }
         }
     };
+
+    if (viewMode === 'intro') {
+        return (
+            <IntroScreen
+                onStartNew={handleStartNew}
+                onContinue={handleContinue}
+                hasHistory={hasHistory}
+                userName={userName}
+            />
+        );
+    }
 
     return (
         <main className="min-h-[100dvh] bg-[#FFF9F0] font-sans selection:bg-orange-200 selection:text-orange-900 relative">
