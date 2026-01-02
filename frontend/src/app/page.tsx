@@ -13,16 +13,23 @@ import { useSpeechRecognition } from '../lib/hooks/useSpeechRecognition';
 
 export default function Home() {
     // 사용자 및 기본 상태
-    const [user] = useState(() => {
-        if (typeof window !== 'undefined') {
-            return "user_" + Math.random().toString(36).substr(2, 9);
-        }
-        return "test_user_1";
-    });
+    const [user, setUser] = useState('');
     const [userName] = useState("한울이");
 
+    // 초기 사용자 설정
+    useEffect(() => {
+        const storedUser = localStorage.getItem('math_ai_user_id');
+        if (storedUser) {
+            setUser(storedUser);
+        } else {
+            const newUser = "user_" + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('math_ai_user_id', newUser);
+            setUser(newUser);
+        }
+    }, []);
+
     // 문제 및 통계 상태
-    const [problem, setProblem] = useState<Problem | null>(INITIAL_PROBLEM);
+    const [problem, setProblem] = useState<Problem | null>(null);
     const [nextProblem, setNextProblem] = useState<Problem | null>(null);
     const [stats, setStats] = useState<Stats>({ level: 1, stickers: 0, totalStickers: 0 });
 
@@ -30,7 +37,7 @@ export default function Home() {
     const [userAnswer, setUserAnswer] = useState('');
     const [feedback, setFeedback] = useState<string>('');
     const [explanation, setExplanation] = useState<Explanation | null>(null);
-    const [loading, setLoading] = useState(false);
+    const [loading, setLoading] = useState(true);
     const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
     const [shake, setShake] = useState(false);
     const [showTimeoutTransition, setShowTimeoutTransition] = useState(false);
@@ -108,11 +115,13 @@ export default function Home() {
         }
     }, [stats.totalStickers, showAchievement]);
 
-    // 초기 로드 및 자동 STT 시작
+    // 초기 로드: 사용자 ID가 설정되면 문제와 통계 가져오기
     useEffect(() => {
-        prefetchProblem();
+        if (user) {
+            fetchProblem();
+        }
         return () => stopAudio();
-    }, []);
+    }, [user]);
 
     // 문제 변경 시 STT 자동 시작
     useEffect(() => {
