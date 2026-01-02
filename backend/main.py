@@ -94,6 +94,61 @@ class UpdateLevelRequest(BaseModel):
     user_id: str
     new_level: int
 
+@app.post("/generate-problem")
+async def generate_problem(request: GenerateProblemRequest):
+    # 1. Get Session Info (Level & Stickers)
+    current_level = 1
+    current_stickers = 0
+    total_stickers = 0
+    
+    if db:
+        try:
+            session_ref = db.collection("sessions").document(request.session_id)
+            session_doc = session_ref.get()
+            if session_doc.exists:
+                data = session_doc.to_dict()
+                current_level = data.get("current_level", 1)
+                current_stickers = data.get("level_stickers", 0)
+                total_stickers = data.get("total_stickers", 0)
+        except Exception as e:
+            print(f"⚠️ Firestore Error (Skipping DB): {e}")
+
+    # 2. Fetch Problem from Problem Bank (Firestore)
+    problem_data = None
+    if db:
+        try:
+            # Fetch all problems for this level (or a random subset if possible, but Firestore random is hard)
+            # For 30 items, fetching all IDs and picking one is fine.
+            # Optimization: Use a random offset or ID if we had sequential IDs, but here we have random IDs.
+            # Let's fetch all for the level and pick one randomly. 30 items is small.
+            problems_ref = db.collection("problems").where("level", "==", current_level).stream()
+            problems_list = [p.to_dict() for p in problems_ref]
+            
+            if problems_list:
+                problem_data = random.choice(problems_list)
+                print(f"🏦 [문제 은행] Level {current_level} 문제 선택 완료: {problem_data['problem']}")
+            else:
+                print(f"⚠️ [문제 은행] Level {current_level} 문제 없음. Fallback 사용.")
+        except Exception as e:
+            print(f"🔥 Firestore Problem Fetch Error: {e}")
+
+    # 3. Fallback if DB failed or empty
+    if not problem_data:
+        problem_data = {
+            "problem": "2 + 2", 
+            "answer": 4
+        }
+
+    return {
+        "problem": problem_data["problem"],
+        "answer": problem_data["answer"],
+        "level": current_level,
+        "id": str(uuid.uuid4()), # Generate a unique ID for this instance of the problem
+        "stickers": current_stickers,
+        "total_stickers": total_stickers,
+        "source": "problem_bank" if db else "fallback"
+    }
+
 @app.post("/explain-error")
 async def explain_error(request: QuizRequest):
     if not model_explain:
@@ -115,11 +170,29 @@ async def explain_error(request: QuizRequest):
             print(f"⚠️ Firestore Error (Skipping DB): {e}")
 
     prompt = f"""
-    문제: {request.problem}
-    사용자가 쓴 답: {request.wrong_answer}
-    사용자 이름: {request.user_name}
+    역할: 친절하고 지혜로운 AI 초등 수학 선생님
+    상황: {request.user_name} 어린이가 수학 문제 "{request.problem}"를 틀렸습니다. (오답: {request.wrong_answer})
     
-    위 상황에 맞춰서 아이에게 설명해주고 JSON을 만들어줘.
+    목표: 단순히 정답을 알려주는 것이 아니라, 수학적 사고력을 키워줄 수 있는 방법으로 설명해주세요.
+    
+    설명 방식 (다음 중 문제에 가장 적합한 하나를 선택):
+    1. **10 만들기 (Make 10):** 덧셈의 경우, 숫자를 갈라서 10을 먼저 만드는 방법을 보여주세요. (예: 8+5 -> 8+2+3 -> 10+3 -> 13)
+    2. **가르기와 모으기 (Decomposition):** 숫자를 분해하여 계산하기 쉽게 만드세요.
+    3. **수직선 (Number Line):** 수직선 위에서 껑충 뛰는 상상을 하도록 유도하세요.
+    4. **짝꿍수:** 더해서 10이 되는 짝꿍수를 활용하세요.
+    
+    제약 사항:
+    - 말투는 매우 다정하고 격려하는 말투 (~해요, ~해볼까요?)
+    - 설명은 3문장 이내로 간결하게.
+    - JSON 포맷으로 응답.
+    
+    JSON Output Format:
+    {{
+        "message": "아이에게 해줄 말 (설명 포함)",
+        "animation_type": "counting", 
+        "visual_items": ["star", "star"...] (시각적 보조가 필요하면 아이템 이름 나열, 최대 10개),
+        "correct_answer": 정답숫자
+    }}
     """
 
     try:
@@ -146,17 +219,10 @@ async def explain_error(request: QuizRequest):
         # Fallback response
         fallback_msg = f"{request.user_name}, 괜찮아! 우리 다시 한 번 천천히 세어볼까?"
         
-        # Randomize fallback items
-        available_items = ["apple", "star", "dinosaur", "car", "candy", "bus", "flower", "pencil", "coin"]
-        selected_item = random.choice(available_items)
-        # Use correct answer count if possible, otherwise default to 5
-        # We don't have correct answer in request, but we can try to parse problem or just show some
-        # Actually request.problem is "2 + 3" string. Let's just show 5 items as generic fallback or try to parse
-        
         return {
             "message": fallback_msg,
             "animation_type": "counting",
-            "visual_items": [selected_item] * 5, 
+            "visual_items": ["star"] * 5, 
             "correct_answer": 0,
             "audio_base64": synthesize_text(fallback_msg)
         }
