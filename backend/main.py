@@ -56,6 +56,59 @@ except Exception as e:
 
 app = FastAPI()
 
+# Gemini Models 초기화
+SYSTEM_PROMPT_EXPLAIN = """
+너는 7세 아이들을 가르치는 아주 친절하고 똑똑한 AI 수학 선생님이야.
+### 사용 가능한 시각적 아이템 (visual_items)
+- apple, star, dinosaur, car, candy, bus, flower, pencil, coin
+- 위 목록 중에서 **매번 다른 것을 골라서** 사용해줘. 사과만 쓰지 마. 상황에 어울리는 것을 골라줘.
+- 예를 들어 3개를 보여줘야 하면 ["car", "car", "car"] 처럼 작성해.
+
+### 응답 포맷 (JSON)
+{
+    "message": "아이고, 아깝다! 사과가 3개 있는데 2개를 더 가져오면 몇 개가 될까? 하나, 둘, 셋, 넷, 다섯! 정답은 5야.",
+    "visual_items": ["apple", "apple", "apple", "apple", "apple"],
+    "animation_type": "counting"
+}
+"""
+
+try:
+    model_explain = GenerativeModel("gemini-2.0-flash-exp", system_instruction=SYSTEM_PROMPT_EXPLAIN)
+    print("✅ Gemini Model Initialized")
+except Exception as e:
+    print(f"❌ Gemini Model Init Failed: {e}")
+    model_explain = None
+
+# Speech Client 초기화
+try:
+    speech_client = speech.SpeechClient()
+    print("✅ Speech Client Initialized")
+except Exception as e:
+    print(f"❌ Speech Client Init Failed: {e}")
+    speech_client = None
+
+# TTS Helper Function
+def synthesize_text(text: str) -> Optional[str]:
+    try:
+        client = texttospeech.TextToSpeechClient()
+        input_text = texttospeech.SynthesisInput(text=text)
+        voice = texttospeech.VoiceSelectionParams(
+            language_code="ko-KR",
+            name="ko-KR-Neural2-C",
+        )
+        audio_config = texttospeech.AudioConfig(
+            audio_encoding=texttospeech.AudioEncoding.MP3,
+            speaking_rate=0.9,
+            pitch=1.0
+        )
+        response = client.synthesize_speech(
+            request={"input": input_text, "voice": voice, "audio_config": audio_config}
+        )
+        return base64.b64encode(response.audio_content).decode("utf-8")
+    except Exception as e:
+        print(f"⚠️ TTS Error: {e}")
+        return None
+
 # 3. CORS 설정
 origins = [
     "http://localhost:3000",
@@ -93,6 +146,110 @@ class QuizRequest(BaseModel):
 class UpdateLevelRequest(BaseModel):
     user_id: str
     new_level: int
+
+class GenerateProblemRequest(BaseModel):
+    user_id: str
+    session_id: str
+
+class SubmitResultRequest(BaseModel):
+    user_id: str
+    session_id: str
+    problem_id: str
+    problem: str
+    answer: int
+    user_answer: str
+    is_correct: bool
+    source: str
+
+class StartSessionRequest(BaseModel):
+    user_id: str
+
+class ContinueSessionRequest(BaseModel):
+    user_id: str
+
+@app.post("/start-session")
+async def start_session(request: StartSessionRequest):
+    """새 세션 시작"""
+    if not db:
+        raise HTTPException(status_code=500, detail="Database not connected")
+    
+    try:
+        # 새 세션 ID 생성
+        session_id = str(uuid.uuid4())
+        
+        # 세션 문서 생성
+        session_data = {
+            "user_id": request.user_id,
+            "current_level": 1,
+            "level_stickers": 0,
+            "total_stickers": 0,
+            "created_at": firestore.SERVER_TIMESTAMP,
+            "last_activity": firestore.SERVER_TIMESTAMP
+        }
+        
+        db.collection("sessions").document(session_id).set(session_data)
+        
+        # 사용자 문서 업데이트 (마지막 세션 ID 저장)
+        db.collection("users").document(request.user_id).set({
+            "last_session_id": session_id,
+            "last_activity": firestore.SERVER_TIMESTAMP
+        }, merge=True)
+        
+        print(f"🎮 [새 세션 시작] user: {request.user_id}, session: {session_id}")
+        
+        return {
+            "session_id": session_id,
+            "current_level": 1,
+            "level_stickers": 0,
+            "total_stickers": 0
+        }
+    except Exception as e:
+        print(f"🔥 Start session failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/continue-session")
+async def continue_session(request: ContinueSessionRequest):
+    """이전 세션 이어하기"""
+    if not db:
+        raise HTTPException(status_code=500, detail="Database not connected")
+    
+    try:
+        # 사용자의 마지막 세션 ID 가져오기
+        user_ref = db.collection("users").document(request.user_id)
+        user_doc = user_ref.get()
+        
+        if not user_doc.exists:
+            return {"status": "no_history"}
+        
+        user_data = user_doc.to_dict()
+        last_session_id = user_data.get("last_session_id")
+        
+        if not last_session_id:
+            return {"status": "no_history"}
+        
+        # 세션 데이터 가져오기
+        session_ref = db.collection("sessions").document(last_session_id)
+        session_doc = session_ref.get()
+        
+        if not session_doc.exists:
+            return {"status": "no_history"}
+        
+        session_data = session_doc.to_dict()
+        
+        # 세션 활동 시간 업데이트
+        session_ref.update({"last_activity": firestore.SERVER_TIMESTAMP})
+        
+        print(f"🔄 [세션 이어하기] user: {request.user_id}, session: {last_session_id}")
+        
+        return {
+            "session_id": last_session_id,
+            "current_level": session_data.get("current_level", 1),
+            "level_stickers": session_data.get("level_stickers", 0),
+            "total_stickers": session_data.get("total_stickers", 0)
+        }
+    except Exception as e:
+        print(f"🔥 Continue session failed: {e}")
+        return {"status": "no_history"}
 
 @app.post("/generate-problem")
 async def generate_problem(request: GenerateProblemRequest):
@@ -148,6 +305,97 @@ async def generate_problem(request: GenerateProblemRequest):
         "total_stickers": total_stickers,
         "source": "problem_bank" if db else "fallback"
     }
+
+@app.post("/submit-result")
+async def submit_result(request: SubmitResultRequest):
+    """문제 결과 제출 및 진행 상황 업데이트"""
+    if not db:
+        return {
+            "new_level": 1,
+            "level_stickers": 0,
+            "total_stickers": 0,
+            "levelup_event": False
+        }
+    
+    try:
+        session_ref = db.collection("sessions").document(request.session_id)
+        
+        # Transaction으로 원자적 업데이트
+        @firestore.transactional
+        def update_session_stats(transaction, ref):
+            snapshot = transaction.get(ref)
+            if not snapshot.exists:
+                # 세션이 없으면 새로 생성
+                session_data = {
+                    "user_id": request.user_id,
+                    "current_level": 1,
+                    "level_stickers": 0,
+                    "total_stickers": 0
+                }
+            else:
+                session_data = snapshot.to_dict()
+            
+            current_level = session_data.get("current_level", 1)
+            level_stickers = session_data.get("level_stickers", 0)
+            total_stickers = session_data.get("total_stickers", 0)
+            
+            levelup_event = False
+            
+            # 정답인 경우 스티커 추가
+            if request.is_correct:
+                level_stickers += 1
+                total_stickers += 1
+                
+                # 10개 모으면 레벨업
+                if level_stickers >= 10:
+                    if current_level < 5:
+                        current_level += 1
+                        level_stickers = 0
+                        levelup_event = True
+                        print(f"🆙 Level Up! session: {request.session_id} -> Lv.{current_level}")
+            
+            # 세션 업데이트
+            transaction.update(ref, {
+                "current_level": current_level,
+                "level_stickers": level_stickers,
+                "total_stickers": total_stickers,
+                "last_activity": firestore.SERVER_TIMESTAMP
+            })
+            
+            #히스토리 기록
+            try:
+                db.collection("history").add({
+                    "user_id": request.user_id,
+                    "session_id": request.session_id,
+                    "problem_id": request.problem_id,
+                    "problem": request.problem,
+                    "answer": request.answer,
+                    "user_answer": request.user_answer,
+                    "is_correct": request.is_correct,
+                    "source": request.source,
+                    "timestamp": firestore.SERVER_TIMESTAMP
+                })
+            except Exception as e:
+                print(f"⚠️ History logging failed: {e}")
+            
+            return {
+                "new_level": current_level,
+                "level_stickers": level_stickers,
+                "total_stickers": total_stickers,
+                "levelup_event": levelup_event,
+                "audio_base64": synthesize_text("정답입니다! 참 잘했어요!") if request.is_correct else None
+            }
+        
+        return update_session_stats(db.transaction(), session_ref)
+    
+    except Exception as e:
+        print(f"🔥 Submit result failed: {e}")
+        return {
+            "new_level": 1,
+            "level_stickers": 0,
+            "total_stickers": 0,
+            "levelup_event": False
+        }
 
 @app.post("/explain-error")
 async def explain_error(request: QuizRequest):
