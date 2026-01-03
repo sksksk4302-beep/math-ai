@@ -128,6 +128,7 @@ export default function Home() {
 
     // 세션 시작/이어하기 핸들러
     const handleStartNew = async () => {
+        console.log("🎮 [새로 시작하기] user_id:", user);
         setLoading(true);
         try {
             const res = await fetch(`${API_URL}/start-session`, {
@@ -135,23 +136,27 @@ export default function Home() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ user_id: user }),
             });
+            console.log("📡 [start-session] Response status:", res.status);
             const data = await res.json();
+            console.log("📦 [start-session] Response data:", data);
             setSessionId(data.session_id);
             setStats({
                 level: data.current_level,
                 stickers: data.level_stickers,
                 totalStickers: data.total_stickers
             });
+            console.log("✅ [Stats Set] Level:", data.current_level, "Stickers:", data.level_stickers, "Total:", data.total_stickers);
             setViewMode('game');
             fetchProblem(data.session_id);
         } catch (e) {
-            console.error("Start session failed:", e);
+            console.error("❌ Start session failed:", e);
             alert("게임을 시작할 수 없어요 ㅠㅠ");
             setLoading(false);
         }
     };
 
     const handleContinue = async () => {
+        console.log("🔄 [이어하기] user_id:", user);
         setLoading(true);
         try {
             const res = await fetch(`${API_URL}/continue-session`, {
@@ -159,7 +164,9 @@ export default function Home() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ user_id: user }),
             });
+            console.log("📡 [continue-session] Response status:", res.status);
             const data = await res.json();
+            console.log("📦 [continue-session] Response data:", data);
 
             if (data.status === 'no_history') {
                 alert("이전 게임 기록이 없어서 새로 시작할게요!");
@@ -173,10 +180,11 @@ export default function Home() {
                 stickers: data.level_stickers,
                 totalStickers: data.total_stickers
             });
+            console.log("✅ [Stats Set] Level:", data.current_level, "Stickers:", data.level_stickers, "Total:", data.total_stickers);
             setViewMode('game');
             fetchProblem(data.session_id);
         } catch (e) {
-            console.error("Continue session failed:", e);
+            console.error("❌ Continue session failed:", e);
             alert("이어하기를 실패했어요. 새로 시작할게요!");
             handleStartNew();
         }
