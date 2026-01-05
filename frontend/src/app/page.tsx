@@ -412,7 +412,7 @@ export default function Home() {
 
             <div className="relative z-10 max-w-6xl mx-auto px-4 py-4 md:px-8 md:py-8 min-h-screen flex flex-col">
                 {/* Header */}
-                <header className="flex justify-between items-center mb-6 md:mb-12 relative z-50">
+                <header className="sticky top-0 z-50 flex justify-between items-center mb-6 md:mb-12 py-2 bg-[#FFF9F0]/90 backdrop-blur-sm transition-all duration-300">
                     <div className="flex items-center gap-2 md:gap-4">
                         <div className="w-10 h-10 md:w-16 md:h-16 bg-white rounded-2xl shadow-lg flex items-center justify-center text-2xl md:text-4xl border-2 border-orange-100">
                             🎓

@@ -18,7 +18,7 @@ export const useTimer = ({ problem, waitingForAnswer, onTimeOver }: UseTimerProp
             setTimeLeft(limit);
             setTimerActive(true); // 답변 대기 여부와 상관없이 타이머 시작 (타임어택)
         }
-    }, [problem, waitingForAnswer]);
+    }, [problem]);
 
     // Countdown logic
     useEffect(() => {
