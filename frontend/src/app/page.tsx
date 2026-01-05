@@ -6,6 +6,7 @@ import confetti from 'canvas-confetti';
 import VisualExplanation from '../components/VisualExplanation';
 import AchievementPopup from '../components/AchievementPopup';
 import LevelUpPopup from '../components/LevelUpPopup';
+import GiftPopup from '../components/GiftPopup';
 import IntroScreen from '../components/IntroScreen';
 import { Problem, Stats, Explanation, INITIAL_PROBLEM, API_URL, GIFT_THRESHOLD, TOTAL_GOAL } from '../lib/types';
 import { useAudio } from '../lib/hooks/useAudio';
@@ -56,6 +57,7 @@ export default function Home() {
     // 새로운 기능 상태
     const [showAchievement, setShowAchievement] = useState(false);
     const [showLevelUp, setShowLevelUp] = useState(false);
+    const [showGift, setShowGift] = useState(false);
     const [newLevel, setNewLevel] = useState(1);
     const [waitingForAnswer, setWaitingForAnswer] = useState(false);
     const [stickerIncrement, setStickerIncrement] = useState(0);
@@ -334,6 +336,13 @@ export default function Home() {
                     setFeedback(`Lv.${data.new_level}로 넘어가겠습니다!! 🚀`);
                 } else if (data.levelup_event) {
                     setFeedback("레벨 업! 🚀");
+                }
+
+                // 별 10개 달성 시 선물 팝업 (레벨업과 별개로 체크하거나, 레벨업과 동시에 발생할 수 있음)
+                // 여기서는 totalStickers가 10의 배수일 때마다 띄우거나, 딱 10개일 때만 띄울 수 있음.
+                // 요청사항: "별 갯수가 10개가 되면" -> 딱 10개일 때로 해석.
+                if (data.total_stickers === 10) {
+                    setTimeout(() => setShowGift(true), 1000);
                 }
 
                 if (data.audio_base64) {
@@ -707,6 +716,12 @@ export default function Home() {
                 level={newLevel}
                 userName={userName}
                 onClose={() => setShowLevelUp(false)}
+            />
+
+            {/* Gift Popup */}
+            <GiftPopup
+                isOpen={showGift}
+                onClose={() => setShowGift(false)}
             />
         </main>
     );

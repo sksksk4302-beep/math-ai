@@ -167,6 +167,23 @@ class StartSessionRequest(BaseModel):
 class ContinueSessionRequest(BaseModel):
     user_id: str
 
+def get_total_stickers(session_id: str) -> int:
+    """history 컬렉션에서 해당 세션의 정답 개수를 집계"""
+    if not db:
+        return 0
+    try:
+        # 효율성을 위해 쿼리 사용
+        query = db.collection("history") \
+            .where("session_id", "==", session_id) \
+            .where("is_correct", "==", True)
+        
+        # stream() 후 len()으로 처리 (문서 수가 많지 않으므로 괜찮음)
+        results = query.stream()
+        return len(list(results))
+    except Exception as e:
+        print(f"⚠️ history에서 스티커 집계 실패: {e}")
+        return 0
+
 @app.post("/start-session")
 async def start_session(request: StartSessionRequest):
     """새 세션 시작"""
@@ -241,11 +258,14 @@ async def continue_session(request: ContinueSessionRequest):
         
         print(f"🔄 [세션 이어하기] user: {request.user_id}, session: {last_session_id}")
         
+        # 실제 스티커 개수 집계 (Source of Truth: History)
+        real_total_stickers = get_total_stickers(last_session_id)
+
         return {
             "session_id": last_session_id,
             "current_level": session_data.get("current_level", 1),
             "level_stickers": session_data.get("level_stickers", 0),
-            "total_stickers": session_data.get("total_stickers", 0)
+            "total_stickers": real_total_stickers
         }
     except Exception as e:
         print(f"🔥 Continue session failed: {e}")
@@ -266,7 +286,8 @@ async def generate_problem(request: GenerateProblemRequest):
                 data = session_doc.to_dict()
                 current_level = data.get("current_level", 1)
                 current_stickers = data.get("level_stickers", 0)
-                total_stickers = data.get("total_stickers", 0)
+                # total_stickers = data.get("total_stickers", 0) # 기존 방식
+                total_stickers = get_total_stickers(request.session_id) # 변경된 방식
         except Exception as e:
             print(f"⚠️ Firestore Error (Skipping DB): {e}")
 
@@ -378,10 +399,13 @@ async def submit_result(request: SubmitResultRequest):
             except Exception as e:
                 print(f"⚠️ History logging failed: {e}")
             
+            # 실제 총 스티커 개수 재집계
+            real_total_stickers = get_total_stickers(request.session_id)
+            
             return {
                 "new_level": current_level,
                 "level_stickers": level_stickers,
-                "total_stickers": total_stickers,
+                "total_stickers": real_total_stickers,
                 "levelup_event": levelup_event,
                 "audio_base64": synthesize_text("정답입니다! 참 잘했어요!") if request.is_correct else None
             }
