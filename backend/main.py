@@ -293,8 +293,8 @@ async def generate_problem(request: GenerateProblemRequest):
                 data = session_doc.to_dict()
                 current_level = data.get("current_level", 1)
                 current_stickers = data.get("level_stickers", 0)
-                # total_stickers = data.get("total_stickers", 0) # 기존 방식
-                total_stickers = get_total_stickers(request.session_id) # 변경된 방식
+                total_stickers = data.get("total_stickers", 0) # 기존 방식 (Session Document Source of Truth)
+                # total_stickers = get_total_stickers(request.session_id) # 변경된 방식 (History Query - Latency Issue)
         except Exception as e:
             print(f"⚠️ Firestore Error (Skipping DB): {e}")
 
@@ -406,8 +406,9 @@ async def submit_result(request: SubmitResultRequest):
             except Exception as e:
                 print(f"⚠️ History logging failed: {e}")
             
-            # 실제 총 스티커 개수 재집계
-            real_total_stickers = get_total_stickers(request.session_id)
+            # 실제 총 스티커 개수 재집계 (Latency 문제로 인해 로컬 변수 사용)
+            # real_total_stickers = get_total_stickers(request.session_id)
+            real_total_stickers = total_stickers
             
             return {
                 "new_level": current_level,
