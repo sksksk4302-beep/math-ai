@@ -10,8 +10,7 @@ from pydantic import BaseModel
 import firebase_admin
 from firebase_admin import credentials, firestore
 from google.cloud import firestore as google_firestore
-import vertexai
-from vertexai.generative_models import GenerativeModel
+from google.cloud import dialogflowcx_v3
 from google.cloud import texttospeech
 from google.cloud import speech
 
@@ -20,6 +19,11 @@ print("🚀 Backend Version 2.0 Started")
 PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT")
 LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 KEY_PATH = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+
+# Agent Configuration
+AGENT_PROJECT_ID = "math-ai-479306"
+AGENT_LOCATION = "us-central1"
+AGENT_ID = "2f2ecf6f-109e-44de-84a6-9a068f90a7b5"
 
 # Firebase 초기화
 if not firebase_admin._apps:
@@ -44,40 +48,43 @@ except Exception as e:
     print(f"❌ Firestore connection failed: {e}")
     db = None
 
-# Vertex AI 초기화 (Service Account Key 사용)
-try:
-    vertexai.init(project=PROJECT_ID, location=LOCATION)
-    print(f"✅ Vertex AI connected! Project: {PROJECT_ID}")
-except Exception as e:
-    error_msg = f"❌ Vertex AI initialization failed: {e}"
-    print(error_msg)
-    with open("backend_error.log", "a", encoding="utf-8") as f:
-        f.write(f"{error_msg}\n")
+
 
 app = FastAPI()
 
-# Gemini Models 초기화
-SYSTEM_PROMPT_EXPLAIN = """
-너는 7세 아이들을 가르치는 아주 친절하고 똑똑한 AI 수학 선생님이야.
-### 사용 가능한 시각적 아이템 (visual_items)
-- apple, star, dinosaur, car, candy, bus, flower, pencil, coin
-- 위 목록 중에서 **매번 다른 것을 골라서** 사용해줘. 사과만 쓰지 마. 상황에 어울리는 것을 골라줘.
-- 예를 들어 3개를 보여줘야 하면 ["car", "car", "car"] 처럼 작성해.
-
-### 응답 포맷 (JSON)
-{
-    "message": "아이고, 아깝다! 사과가 3개 있는데 2개를 더 가져오면 몇 개가 될까? 하나, 둘, 셋, 넷, 다섯! 정답은 5야.",
-    "visual_items": ["apple", "apple", "apple", "apple", "apple"],
-    "animation_type": "counting"
-}
-"""
-
+# Dialogflow CX Client 초기화
 try:
-    model_explain = GenerativeModel("gemini-2.0-flash-exp", system_instruction=SYSTEM_PROMPT_EXPLAIN)
-    print("✅ Gemini Model Initialized")
+    client_options = None
+    if AGENT_LOCATION != "global":
+        api_endpoint = f"{AGENT_LOCATION}-dialogflow.googleapis.com:443"
+        client_options = {"api_endpoint": api_endpoint}
+    
+    session_client = dialogflowcx_v3.SessionsClient(client_options=client_options)
+    print(f"✅ Dialogflow CX Client Initialized (Agent: {AGENT_ID})")
 except Exception as e:
-    print(f"❌ Gemini Model Init Failed: {e}")
-    model_explain = None
+    print(f"❌ Dialogflow CX Client Init Failed: {e}")
+    session_client = None
+
+def call_agent(session_id: str, text: str):
+    if not session_client:
+        return None
+    
+    session_path = f"projects/{AGENT_PROJECT_ID}/locations/{AGENT_LOCATION}/agents/{AGENT_ID}/sessions/{session_id}"
+    
+    text_input = dialogflowcx_v3.TextInput(text=text)
+    query_input = dialogflowcx_v3.QueryInput(text=text_input, language_code="ko")
+    
+    request = dialogflowcx_v3.DetectIntentRequest(
+        session=session_path,
+        query_input=query_input
+    )
+    
+    try:
+        response = session_client.detect_intent(request=request)
+        return response.query_result.response_messages
+    except Exception as e:
+        print(f"⚠️ Agent Request Failed: {e}")
+        return None
 
 # Speech Client 초기화
 try:
@@ -423,8 +430,8 @@ async def submit_result(request: SubmitResultRequest):
 
 @app.post("/explain-error")
 async def explain_error(request: QuizRequest):
-    if not model_explain:
-        raise HTTPException(status_code=500, detail="Vertex AI model not initialized")
+    if not session_client:
+        raise HTTPException(status_code=500, detail="Agent client not initialized")
 
     print(f"📥 [오답 설명 요청] {request.user_name}: {request.problem} (답: {request.wrong_answer})")
     
@@ -441,45 +448,45 @@ async def explain_error(request: QuizRequest):
         except Exception as e:
             print(f"⚠️ Firestore Error (Skipping DB): {e}")
 
-    prompt = f"""
-    역할: 친절하고 지혜로운 AI 초등 수학 선생님
-    상황: {request.user_name} 어린이가 수학 문제 "{request.problem}"를 틀렸습니다. (오답: {request.wrong_answer})
+    # Agent에게 보낼 메시지 구성
+    user_input = f"문제: {request.problem}, 학생 답: {request.wrong_answer}, 학생 이름: {request.user_name}"
     
-    목표: 단순히 정답을 알려주는 것이 아니라, 수학적 사고력을 키워줄 수 있는 방법으로 설명해주세요.
-    
-    설명 방식 (다음 중 문제에 가장 적합한 하나를 선택):
-    1. **10 만들기 (Make 10):** 덧셈의 경우, 숫자를 갈라서 10을 먼저 만드는 방법을 보여주세요. (예: 8+5 -> 8+2+3 -> 10+3 -> 13)
-    2. **가르기와 모으기 (Decomposition):** 숫자를 분해하여 계산하기 쉽게 만드세요.
-    3. **수직선 (Number Line):** 수직선 위에서 껑충 뛰는 상상을 하도록 유도하세요.
-    4. **짝꿍수:** 더해서 10이 되는 짝꿍수를 활용하세요.
-    
-    제약 사항:
-    - 말투는 매우 다정하고 격려하는 말투 (~해요, ~해볼까요?)
-    - 설명은 3문장 이내로 간결하게.
-    - JSON 포맷으로 응답.
-    
-    JSON Output Format:
-    {{
-        "message": "아이에게 해줄 말 (설명 포함)",
-        "animation_type": "counting", 
-        "visual_items": ["star", "star"...] (시각적 보조가 필요하면 아이템 이름 나열, 최대 10개),
-        "correct_answer": 정답숫자
-    }}
-    """
+    # 세션 ID는 랜덤 생성 (또는 사용자별 유지 가능)
+    agent_session_id = str(uuid.uuid4())
 
     try:
-        response = model_explain.generate_content(
-            prompt,
-            generation_config={"response_mime_type": "application/json"}
-        )
+        messages = call_agent(agent_session_id, user_input)
         
-        result = json.loads(response.text)
+        if not messages:
+            raise Exception("No response from Agent")
+            
+        # Agent 응답 중 텍스트 메시지 찾기
+        agent_text = ""
+        for msg in messages:
+            if msg.text:
+                agent_text += "".join(msg.text.text)
+        
+        print(f"🤖 Agent Raw Response: {agent_text}")
+
+        # JSON 파싱 시도
+        try:
+            # Markdown 코드 블록 제거 (```json ... ```)
+            clean_text = agent_text.replace("```json", "").replace("```", "").strip()
+            result = json.loads(clean_text)
+        except json.JSONDecodeError:
+            print("⚠️ Agent response is not valid JSON. Using raw text as message.")
+            result = {
+                "message": agent_text,
+                "visual_items": [],
+                "animation_type": "counting",
+                "correct_answer": 0
+            }
         
         # TTS Generation
-        audio_base64 = synthesize_text(result['message'])
+        audio_base64 = synthesize_text(result.get('message', ''))
         result['audio_base64'] = audio_base64
         
-        print(f"📤 [응답] AI 선생님: {result['message']}")
+        print(f"📤 [응답] AI 선생님: {result.get('message')}")
         return result
 
     except Exception as e:
