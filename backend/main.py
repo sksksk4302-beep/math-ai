@@ -453,6 +453,35 @@ async def explain_error(request: QuizRequest):
     # Agent에게 보낼 메시지 구성
     user_input = f"문제: {request.problem}, 학생 답: {request.wrong_answer}, 학생 이름: {request.user_name}"
     
+    # 탐정 모드 감지 (문제에 '?'가 포함된 경우)
+    is_detective = "?" in request.problem
+    visual_problem = request.problem # 시각화를 위한 변환된 문제 (예: 2 + 3)
+
+    if is_detective:
+        try:
+            # "2 + ? = 5" -> "2 + 3" 형태로 변환하여 시각화에 사용
+            # 1. 파싱
+            parts = request.problem.split() # ['2', '+', '?', '=', '5']
+            if len(parts) >= 5:
+                num1 = int(parts[0])
+                operator = parts[1]
+                result = int(parts[4])
+                
+                # 숨겨진 숫자(정답) 계산
+                hidden_num = 0
+                if operator == '+':
+                    hidden_num = result - num1
+                elif operator == '-':
+                    hidden_num = num1 - result
+                
+                # 시각화용 문제 재구성 (2 + 3)
+                visual_problem = f"{num1} {operator} {hidden_num}"
+                
+                # 프롬프트 강화
+                user_input += f". 이것은 빈칸 채우기 문제입니다 (예: {request.problem}). 빈칸에 들어갈 정답이 {hidden_num}이라는 것을 설명해주세요. 전체 개수 {result}에서 {num1}을 {operator == '+' and '빼면' or '생각하면'} 알 수 있다는 식으로 설명해주세요."
+        except Exception as e:
+            print(f"⚠️ Detective mode explanation prep failed: {e}")
+
     # 세션 ID는 랜덤 생성 (또는 사용자별 유지 가능)
     agent_session_id = str(uuid.uuid4())
 
@@ -475,13 +504,20 @@ async def explain_error(request: QuizRequest):
             # Markdown 코드 블록 제거 (```json ... ```)
             clean_text = agent_text.replace("```json", "").replace("```", "").strip()
             result = json.loads(clean_text)
+            
+            # 탐정 모드일 경우 시각화 문제 덮어쓰기
+            if is_detective:
+                result['problem'] = visual_problem
+                result['is_detective'] = True
+                
         except json.JSONDecodeError:
             print("⚠️ Agent response is not valid JSON. Using raw text as message.")
             result = {
                 "message": agent_text,
                 "visual_items": [],
                 "animation_type": "counting",
-                "correct_answer": 0
+                "correct_answer": 0,
+                "problem": visual_problem if is_detective else request.problem
             }
         
         # TTS Generation

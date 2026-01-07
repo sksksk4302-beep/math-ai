@@ -665,6 +665,7 @@ export default function Home() {
                                             count2={parseInt((explanation.problem || "0+0").split(/[\+\-]/)[1])}
                                             operator={(explanation.problem || "0+0").includes('+') ? '+' : '-'}
                                             visualItems={explanation.visual_items}
+                                            isDetective={explanation.is_detective}
                                         />
                                     </div>
 

@@ -13,7 +13,7 @@ const ITEM_EMOJIS: Record<string, string> = {
     candy: '🍬', bus: '🚌', flower: '🌸', pencil: '✏️', coin: '🪙'
 };
 
-export default function VisualExplanation({ count1, count2, operator, visualItems }: VisualExplanationProps) {
+export default function VisualExplanation({ count1, count2, operator, visualItems, isDetective }: VisualExplanationProps & { isDetective?: boolean }) {
     const total = operator === '+' ? count1 + count2 : count1 - count2;
     const itemEmoji = ITEM_EMOJIS[visualItems[0]] || '🍎';
 
@@ -22,7 +22,9 @@ export default function VisualExplanation({ count1, count2, operator, visualItem
         return (
             <div className="flex flex-col items-center gap-8 w-full">
                 <div className="text-2xl font-bold text-orange-600 mb-2 text-center">
-                    {total >= 10 ? `${total}개는 10개씩 묶어볼까요?` : `모두 합치면 몇 개일까요?`}
+                    {isDetective
+                        ? `전체 ${total}개에서 ${count1}개를 빼면 몇 개가 남을까요?`
+                        : (total >= 10 ? `${total}개는 10개씩 묶어볼까요?` : `모두 합치면 몇 개일까요?`)}
                 </div>
 
                 <div className="flex flex-wrap justify-center gap-8">
@@ -70,34 +72,56 @@ export default function VisualExplanation({ count1, count2, operator, visualItem
     return (
         <div className="flex flex-col items-center gap-8 w-full">
             <div className="text-2xl font-bold text-orange-600 mb-2 text-center">
-                {total < 10 ? "모두 합치면 몇 개일까요?" : "하나씩 세어볼까요?"}
+                {isDetective
+                    ? `전체 ${total}개 중에서 숨어있던 ${count2}개를 찾았어요!`
+                    : (total < 10 ? "모두 합치면 몇 개일까요?" : "하나씩 세어볼까요?")}
             </div>
 
             <div className="flex flex-wrap justify-center gap-4 max-w-md">
-                {Array.from({ length: total }).map((_, i) => (
-                    <motion.div
-                        key={i}
-                        initial={{ scale: 0, y: 20 }}
-                        animate={{ scale: 1, y: 0 }}
-                        transition={{
-                            type: "spring",
-                            stiffness: 260,
-                            damping: 20,
-                            delay: i * 0.15
-                        }}
-                        className="w-16 h-16 flex items-center justify-center text-5xl bg-white rounded-2xl shadow-md border-b-4 border-slate-100"
-                    >
-                        {itemEmoji}
-                        <motion.span
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            transition={{ delay: i * 0.15 + 0.2 }}
-                            className="absolute -top-2 -right-2 w-6 h-6 bg-orange-500 text-white text-xs rounded-full flex items-center justify-center font-bold"
+                {Array.from({ length: total }).map((_, i) => {
+                    // 탐정 모드일 때, 두 번째 숫자(count2)에 해당하는 아이템들 강조
+                    // 예: 2 + 3 = 5 이면, 인덱스 2, 3, 4 (0, 1은 count1)
+                    const isHiddenPart = isDetective && (i >= count1);
+
+                    return (
+                        <motion.div
+                            key={i}
+                            initial={{ scale: 0, y: 20 }}
+                            animate={{ scale: 1, y: 0 }}
+                            transition={{
+                                type: "spring",
+                                stiffness: 260,
+                                damping: 20,
+                                delay: i * 0.15
+                            }}
+                            className={`w-16 h-16 flex items-center justify-center text-5xl rounded-2xl shadow-md border-b-4 
+                                ${isHiddenPart
+                                    ? 'bg-yellow-100 border-yellow-300 ring-4 ring-yellow-200 animate-pulse'
+                                    : 'bg-white border-slate-100'}`}
                         >
-                            {i + 1}
-                        </motion.span>
-                    </motion.div>
-                ))}
+                            {isHiddenPart && (
+                                <motion.span
+                                    initial={{ scale: 0 }}
+                                    animate={{ scale: 1.5, opacity: [0, 1, 0] }}
+                                    transition={{ repeat: Infinity, duration: 1.5 }}
+                                    className="absolute text-2xl"
+                                >
+                                    ✨
+                                </motion.span>
+                            )}
+                            {itemEmoji}
+                            <motion.span
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                transition={{ delay: i * 0.15 + 0.2 }}
+                                className={`absolute -top-2 -right-2 w-6 h-6 text-xs rounded-full flex items-center justify-center font-bold
+                                    ${isHiddenPart ? 'bg-yellow-500 text-white' : 'bg-orange-500 text-white'}`}
+                            >
+                                {i + 1}
+                            </motion.span>
+                        </motion.div>
+                    );
+                })}
             </div>
         </div>
     );

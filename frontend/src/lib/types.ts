@@ -27,6 +27,7 @@ export interface Explanation {
     correct_answer: number;
     audio_base64?: string;
     problem?: string;
+    is_detective?: boolean;
 }
 
 export const INITIAL_PROBLEM: Problem = {
