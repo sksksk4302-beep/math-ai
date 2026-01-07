@@ -265,8 +265,9 @@ async def continue_session(request: ContinueSessionRequest):
         
         print(f"🔄 [세션 이어하기] user: {request.user_id}, session: {last_session_id}")
         
-        # 실제 스티커 개수 집계 (Source of Truth: History)
-        real_total_stickers = get_total_stickers(last_session_id)
+        # 실제 스티커 개수 집계 (Source of Truth: Session Document)
+        # history 집계는 지연이 있을 수 있으므로 세션 문서의 값을 사용합니다.
+        real_total_stickers = session_data.get("total_stickers", 0)
 
         return {
             "session_id": last_session_id,
