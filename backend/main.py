@@ -43,6 +43,8 @@ if not firebase_admin._apps:
 try:
     # Use google-cloud-firestore directly for named database support
     db = google_firestore.Client(project=PROJECT_ID, database='math-ai')
+    # 기본 데이터베이스 사용 ('(default)')
+    # db = google_firestore.Client(project=PROJECT_ID)
     print("✅ Connected to Firestore database: math-ai")
 except Exception as e:
     print(f"❌ Firestore connection failed: {e}")
@@ -352,7 +354,18 @@ async def submit_result(request: SubmitResultRequest):
         # Transaction으로 원자적 업데이트
         @firestore.transactional
         def update_session_stats(transaction, ref):
-            snapshot = transaction.get(ref)
+            # Fix for 'generator' object has no attribute 'exists'
+            snapshot_obj = transaction.get(ref)
+            snapshot = snapshot_obj
+            
+            # If it returns a generator/iterator, get the first item
+            if hasattr(snapshot_obj, '__next__') or hasattr(snapshot_obj, '__iter__'):
+                try:
+                    snapshot = next(snapshot_obj)
+                except TypeError:
+                    # Not actually iterable?
+                    pass
+            
             if not snapshot.exists:
                 # 세션이 없으면 새로 생성
                 session_data = {
@@ -383,13 +396,21 @@ async def submit_result(request: SubmitResultRequest):
                         levelup_event = True
                         print(f"🆙 Level Up! session: {request.session_id} -> Lv.{current_level}")
             
-            # 세션 업데이트
-            transaction.update(ref, {
+            # 세션 업데이트 (문서 존재 여부에 따라 분기)
+            update_data = {
                 "current_level": current_level,
                 "level_stickers": level_stickers,
                 "total_stickers": total_stickers,
                 "last_activity": firestore.SERVER_TIMESTAMP
-            })
+            }
+
+            if not snapshot.exists:
+                # 문서가 없으면 새로 생성 (user_id 등 필수 필드 포함)
+                session_data.update(update_data) # 기존 초기화 데이터에 업데이트 내용 병합
+                transaction.set(ref, session_data)
+            else:
+                # 문서가 있으면 수정
+                transaction.update(ref, update_data)
             
             #히스토리 기록
             try:
