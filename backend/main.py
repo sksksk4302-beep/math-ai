@@ -42,10 +42,9 @@ if not firebase_admin._apps:
 # Firestore 클라이언트
 try:
     # Use google-cloud-firestore directly for named database support
-    db = google_firestore.Client(project=PROJECT_ID, database='math-ai')
-    # 기본 데이터베이스 사용 ('(default)')
-    # db = google_firestore.Client(project=PROJECT_ID)
-    print("✅ Connected to Firestore database: math-ai")
+    db_name = os.getenv("FIRESTORE_DB_NAME", "math-ai")
+    db = google_firestore.Client(project=PROJECT_ID, database=db_name)
+    print(f"✅ Connected to Firestore database: {db_name}")
 except Exception as e:
     print(f"❌ Firestore connection failed: {e}")
     db = None
@@ -119,13 +118,17 @@ def synthesize_text(text: str) -> Optional[str]:
         return None
 
 # 3. CORS 설정
-origins = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    # Firebase Hosting production domains
-    "https://math-ai-479306.web.app",
-    "https://math-ai-479306.firebaseapp.com",
-]
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS")
+if allowed_origins_env:
+    origins = allowed_origins_env.split(",")
+else:
+    origins = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        # Firebase Hosting production domains
+        "https://math-ai-479306.web.app",
+        "https://math-ai-479306.firebaseapp.com",
+    ]
 
 app.add_middleware(
     CORSMiddleware,
@@ -176,22 +179,7 @@ class StartSessionRequest(BaseModel):
 class ContinueSessionRequest(BaseModel):
     user_id: str
 
-def get_total_stickers(session_id: str) -> int:
-    """history 컬렉션에서 해당 세션의 정답 개수를 집계"""
-    if not db:
-        return 0
-    try:
-        # 효율성을 위해 쿼리 사용
-        query = db.collection("history") \
-            .where("session_id", "==", session_id) \
-            .where("is_correct", "==", True)
-        
-        # stream() 후 len()으로 처리 (문서 수가 많지 않으므로 괜찮음)
-        results = query.stream()
-        return len(list(results))
-    except Exception as e:
-        print(f"⚠️ history에서 스티커 집계 실패: {e}")
-        return 0
+
 
 @app.post("/start-session")
 async def start_session(request: StartSessionRequest):
@@ -444,12 +432,7 @@ async def submit_result(request: SubmitResultRequest):
     
     except Exception as e:
         print(f"🔥 Submit result failed: {e}")
-        return {
-            "new_level": 1,
-            "level_stickers": 0,
-            "total_stickers": 0,
-            "levelup_event": False
-        }
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/explain-error")
 async def explain_error(request: QuizRequest):

@@ -97,7 +97,7 @@ export default function Home() {
         // STT는 입력만 하고 자동 제출하지 않음
     };
 
-    const { isListening, isProcessingStt, startListening } = useSpeechRecognition({
+    const { isListening, isProcessingStt, startListening, stopListening } = useSpeechRecognition({
         onResult: handleSttResult
     });
 
@@ -229,6 +229,7 @@ export default function Home() {
         setIsCorrect(null);
         setUserAnswer('');
         stopAudio();
+        stopListening(); // STT 중단
 
         try {
             const res = await fetch(`${API_URL}/generate-problem`, {
@@ -279,6 +280,7 @@ export default function Home() {
         if (!problem || !sessionId) return;
         if (!isTimeout && (!answerOverride && !userAnswer)) return;
 
+        stopListening(); // 정답 확인 시 STT 중단
         setTimerActive(false);
 
         // 현재 문제를 저장 (오답 설명용)

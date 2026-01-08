@@ -9,6 +9,7 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
     const [isListening, setIsListening] = useState(false);
     const [isProcessingStt, setIsProcessingStt] = useState(false);
     const streamRef = useRef<MediaStream | null>(null);
+    const recognitionRef = useRef<any>(null);
 
     // 1. 컴포넌트 마운트 시 마이크 스트림 미리 확보 (Warm-up)
     useEffect(() => {
@@ -30,7 +31,19 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
                 streamRef.current.getTracks().forEach(track => track.stop());
                 streamRef.current = null;
             }
+            if (recognitionRef.current) {
+                recognitionRef.current.abort();
+                recognitionRef.current = null;
+            }
         };
+    }, []);
+
+    const stopListening = useCallback(() => {
+        if (recognitionRef.current) {
+            recognitionRef.current.abort(); // stop() 대신 abort()가 더 확실하게 중단
+            recognitionRef.current = null;
+        }
+        setIsListening(false);
     }, []);
 
     const handleVoiceRecord = useCallback(async () => {
@@ -57,7 +70,7 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
                 formData.append('file', audioBlob, 'recording.webm');
 
                 try {
-                    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://math-ai-backend-div6osazmq-uc.a.run.app';
+                    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
                     const res = await fetch(`${apiUrl}/stt`, {
                         method: 'POST',
                         body: formData,
@@ -93,10 +106,16 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
 
     const startListening = useCallback(() => {
         if (isListening || isProcessingStt) return;
-        setIsListening(true);
+
+        // 기존 인스턴스 정리
+        if (recognitionRef.current) {
+            recognitionRef.current.abort();
+        }
 
         if ('webkitSpeechRecognition' in window) {
             const recognition = new (window as any).webkitSpeechRecognition();
+            recognitionRef.current = recognition;
+
             recognition.lang = 'ko-KR';
             recognition.continuous = false;
             recognition.interimResults = false;
@@ -108,6 +127,7 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
             recognition.onend = () => {
                 // 자동 재시작 로직 제거 (필요 시 버튼으로 다시 시작)
                 setIsListening(false);
+                recognitionRef.current = null;
             };
 
             recognition.onresult = (event: any) => {
@@ -124,6 +144,8 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
             recognition.onerror = (event: any) => {
                 console.error("Speech recognition error", event.error);
                 setIsListening(false);
+                recognitionRef.current = null;
+
                 if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
                     handleVoiceRecord(); // 폴백
                 }
@@ -144,6 +166,7 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
     return {
         isListening,
         isProcessingStt,
-        startListening
+        startListening,
+        stopListening
     };
 };

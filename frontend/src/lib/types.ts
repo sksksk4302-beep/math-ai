@@ -37,6 +37,6 @@ export const INITIAL_PROBLEM: Problem = {
     level: 1
 };
 
-export const API_URL = 'https://math-ai-backend-dlgntatyiq-uc.a.run.app';
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 export const GIFT_THRESHOLD = 25;
 export const TOTAL_GOAL = 30;
