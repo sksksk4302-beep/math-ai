@@ -125,9 +125,11 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
             };
 
             recognition.onend = () => {
-                // 자동 재시작 로직 제거 (필요 시 버튼으로 다시 시작)
-                setIsListening(false);
-                recognitionRef.current = null;
+                // 현재 인스턴스가 맞는지 확인 (Race Condition 방지)
+                if (recognitionRef.current === recognition) {
+                    setIsListening(false);
+                    recognitionRef.current = null;
+                }
             };
 
             recognition.onresult = (event: any) => {
@@ -143,8 +145,12 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
 
             recognition.onerror = (event: any) => {
                 console.error("Speech recognition error", event.error);
-                setIsListening(false);
-                recognitionRef.current = null;
+
+                // 현재 인스턴스가 맞는지 확인
+                if (recognitionRef.current === recognition) {
+                    setIsListening(false);
+                    recognitionRef.current = null;
+                }
 
                 if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
                     handleVoiceRecord(); // 폴백
