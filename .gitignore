@@ -9,3 +9,11 @@ __pycache__/
 .idea/
 tsconfig.tsbuildinfo
 .firebase/
+
+# Backend test and debug files
+backend/test_output.txt
+backend/scripts/
+backend/*.log
+
+# Frontend build output
+frontend/out/

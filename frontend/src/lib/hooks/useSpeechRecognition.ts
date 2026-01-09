@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useReducer } from 'react';
 import { normalizeKoreanNumber } from '../utils/korean';
 
 interface UseSpeechRecognitionProps {
@@ -6,8 +6,12 @@ interface UseSpeechRecognitionProps {
 }
 
 export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) => {
-    const [isListening, setIsListening] = useState(false);
-    const [isProcessingStt, setIsProcessingStt] = useState(false);
+    // ✅ UI 업데이트를 위한 forceUpdate 메커니즘
+    const [, forceUpdate] = useReducer(x => x + 1, 0);
+
+    // ✅ 상태를 ref로 관리 (startListening을 stable하게 만들기 위함)
+    const isListeningRef = useRef(false);
+    const isProcessingSttRef = useRef(false);
 
     // Fallback용 스트림 (webkitSpeechRecognition 실패 시에만 사용)
     const streamRef = useRef<MediaStream | null>(null);
@@ -37,6 +41,16 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
         };
     }, []);
 
+    const setIsListening = useCallback((value: boolean) => {
+        isListeningRef.current = value;
+        forceUpdate();
+    }, []);
+
+    const setIsProcessingStt = useCallback((value: boolean) => {
+        isProcessingSttRef.current = value;
+        forceUpdate();
+    }, []);
+
     const stopListening = useCallback(() => {
         if (recognitionRef.current) {
             recognitionRef.current.abort();
@@ -50,7 +64,7 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
             streamRef.current.getTracks().forEach(track => track.stop());
             streamRef.current = null;
         }
-    }, []);
+    }, [setIsListening]);
 
     // 2. Fallback: 직접 녹음해서 서버로 전송 (Web Speech API 미지원/오류 시)
     const handleVoiceRecord = useCallback(async () => {
@@ -106,11 +120,12 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
             setIsListening(false);
             alert("마이크 권한이 필요해요! 🎤");
         }
-    }, []);
+    }, [setIsListening, setIsProcessingStt]);
 
+    // ✅ 의존성 배열을 []로 만들어 완전히 stable하게
     const startListening = useCallback(() => {
         // 이미 듣고 있거나 처리 중이면 중복 실행 방지
-        if (isListening || isProcessingStt || isStartingRef.current) return;
+        if (isListeningRef.current || isProcessingSttRef.current || isStartingRef.current) return;
 
         // 기존 인스턴스 확실히 정리
         if (recognitionRef.current) {
@@ -181,11 +196,11 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
         } else {
             handleVoiceRecord();
         }
-    }, [isListening, isProcessingStt, handleVoiceRecord]); // 의존성 최소화
+    }, []); // ✅ 빈 배열 = 절대 재생성되지 않음
 
     return {
-        isListening,
-        isProcessingStt,
+        isListening: isListeningRef.current,
+        isProcessingStt: isProcessingSttRef.current,
         startListening,
         stopListening
     };
