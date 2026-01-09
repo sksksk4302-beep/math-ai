@@ -10,6 +10,11 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
     const [isProcessingStt, setIsProcessingStt] = useState(false);
     const streamRef = useRef<MediaStream | null>(null);
     const recognitionRef = useRef<any>(null);
+    const onResultRef = useRef(onResult);
+
+    useEffect(() => {
+        onResultRef.current = onResult;
+    }, [onResult]);
 
     // 1. 컴포넌트 마운트 시 마이크 스트림 미리 확보 (Warm-up)
     useEffect(() => {
@@ -78,7 +83,7 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
                     });
                     const data = await res.json();
                     if (data.number) {
-                        onResult(data.number);
+                        onResultRef.current(data.number);
                     }
                 } catch (e) {
                     console.error("STT Failed:", e);
@@ -102,7 +107,7 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
             setIsListening(false);
             alert("마이크 권한이 필요해요! 설정에서 허용해주세요. 🎤");
         }
-    }, [onResult]);
+    }, []);
 
     const startListening = useCallback(() => {
         if (isListening || isProcessingStt) return;
@@ -139,7 +144,7 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
                 const number = normalizeKoreanNumber(transcript);
 
                 if (number) {
-                    onResult(number);
+                    onResultRef.current(number);
                 }
             };
 
@@ -167,7 +172,7 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
         } else {
             handleVoiceRecord();
         }
-    }, [isListening, isProcessingStt, onResult, handleVoiceRecord]);
+    }, [isListening, isProcessingStt]);
 
     return {
         isListening,
