@@ -11,6 +11,7 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
     const streamRef = useRef<MediaStream | null>(null);
     const recognitionRef = useRef<any>(null);
     const onResultRef = useRef(onResult);
+    const isStartingRef = useRef(false);
 
     useEffect(() => {
         onResultRef.current = onResult;
@@ -110,12 +111,14 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
     }, []);
 
     const startListening = useCallback(() => {
-        if (isListening || isProcessingStt) return;
+        if (isListening || isProcessingStt || isStartingRef.current) return;
 
         // 기존 인스턴스 정리
         if (recognitionRef.current) {
             recognitionRef.current.abort();
         }
+
+        isStartingRef.current = true;
 
         if ('webkitSpeechRecognition' in window) {
             const recognition = new (window as any).webkitSpeechRecognition();
@@ -126,10 +129,14 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
             recognition.interimResults = false;
 
             recognition.onstart = () => {
-                setIsListening(true); // 명시적 상태 업데이트
+                isStartingRef.current = false;
+                if (recognitionRef.current === recognition) {
+                    setIsListening(true);
+                }
             };
 
             recognition.onend = () => {
+                isStartingRef.current = false;
                 // 현재 인스턴스가 맞는지 확인 (Race Condition 방지)
                 if (recognitionRef.current === recognition) {
                     setIsListening(false);
@@ -150,6 +157,7 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
 
             recognition.onerror = (event: any) => {
                 console.error("Speech recognition error", event.error);
+                isStartingRef.current = false;
 
                 // 현재 인스턴스가 맞는지 확인
                 if (recognitionRef.current === recognition) {
@@ -162,18 +170,14 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
                 }
             };
 
-            // 약간의 지연 후 시작 (브라우저 리소스 정리 시간 확보)
-            setTimeout(() => {
-                if (recognitionRef.current === recognition) {
-                    try {
-                        recognition.start();
-                    } catch (e) {
-                        console.error("Mic start error:", e);
-                        setIsListening(false);
-                        handleVoiceRecord();
-                    }
-                }
-            }, 100);
+            try {
+                recognition.start();
+            } catch (e) {
+                console.error("Mic start error:", e);
+                isStartingRef.current = false;
+                setIsListening(false);
+                handleVoiceRecord();
+            }
         } else {
             handleVoiceRecord();
         }
