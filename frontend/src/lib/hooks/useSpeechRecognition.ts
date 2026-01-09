@@ -162,13 +162,18 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
                 }
             };
 
-            try {
-                recognition.start();
-            } catch (e) {
-                console.error("Mic start error:", e);
-                setIsListening(false);
-                handleVoiceRecord();
-            }
+            // 약간의 지연 후 시작 (브라우저 리소스 정리 시간 확보)
+            setTimeout(() => {
+                if (recognitionRef.current === recognition) {
+                    try {
+                        recognition.start();
+                    } catch (e) {
+                        console.error("Mic start error:", e);
+                        setIsListening(false);
+                        handleVoiceRecord();
+                    }
+                }
+            }, 100);
         } else {
             handleVoiceRecord();
         }
