@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useReducer } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { normalizeKoreanNumber } from '../utils/korean';
 
 interface UseSpeechRecognitionProps {
@@ -6,202 +6,111 @@ interface UseSpeechRecognitionProps {
 }
 
 export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) => {
-    // ✅ UI 업데이트를 위한 forceUpdate 메커니즘
-    const [, forceUpdate] = useReducer(x => x + 1, 0);
-
-    // ✅ 상태를 ref로 관리 (startListening을 stable하게 만들기 위함)
-    const isListeningRef = useRef(false);
-    const isProcessingSttRef = useRef(false);
-
-    // Fallback용 스트림 (webkitSpeechRecognition 실패 시에만 사용)
-    const streamRef = useRef<MediaStream | null>(null);
+    const [isListening, setIsListening] = useState(false);
     const recognitionRef = useRef<any>(null);
-
-    // ✅ 콜백 함수를 Ref에 담아 최신 상태 유지 (Closure 문제 해결)
     const onResultRef = useRef(onResult);
 
-    // ✅ 중복 시작 방지 가드
-    const isStartingRef = useRef(false);
+    // ✅ 사용자가 '듣기'를 원하는지 여부 (실제 마이크 상태와 별개)
+    // 이 값이 true인 동안에는 마이크가 꺼지면 무조건 다시 켭니다.
+    const shouldListenRef = useRef(false);
 
     useEffect(() => {
         onResultRef.current = onResult;
     }, [onResult]);
 
-    // 컴포넌트 언마운트 시 정리
-    useEffect(() => {
-        return () => {
-            if (streamRef.current) {
-                streamRef.current.getTracks().forEach(track => track.stop());
-                streamRef.current = null;
-            }
-            if (recognitionRef.current) {
-                recognitionRef.current.abort();
-                recognitionRef.current = null;
-            }
-        };
-    }, []);
-
-    const setIsListening = useCallback((value: boolean) => {
-        isListeningRef.current = value;
-        forceUpdate();
-    }, []);
-
-    const setIsProcessingStt = useCallback((value: boolean) => {
-        isProcessingSttRef.current = value;
-        forceUpdate();
-    }, []);
-
-    const stopListening = useCallback(() => {
-        if (recognitionRef.current) {
-            recognitionRef.current.abort();
-            recognitionRef.current = null;
-        }
-        setIsListening(false);
-        isStartingRef.current = false;
-
-        // Fallback 스트림도 정리
-        if (streamRef.current) {
-            streamRef.current.getTracks().forEach(track => track.stop());
-            streamRef.current = null;
-        }
-    }, [setIsListening]);
-
-    // 2. Fallback: 직접 녹음해서 서버로 전송 (Web Speech API 미지원/오류 시)
-    const handleVoiceRecord = useCallback(async () => {
-        setIsListening(true);
-        try {
-            let stream = streamRef.current;
-            if (!stream || !stream.active) {
-                stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                streamRef.current = stream;
-            }
-
-            const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
-            const audioChunks: Blob[] = [];
-
-            mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) audioChunks.push(event.data);
-            };
-
-            mediaRecorder.onstop = async () => {
-                setIsProcessingStt(true);
-                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                const formData = new FormData();
-                formData.append('file', audioBlob, 'recording.webm');
-
-                try {
-                    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-                    const res = await fetch(`${apiUrl}/stt`, {
-                        method: 'POST',
-                        body: formData,
-                        cache: 'no-store'
-                    });
-                    const data = await res.json();
-                    if (data.number) {
-                        onResultRef.current(data.number);
-                    }
-                } catch (e) {
-                    console.error("STT Failed:", e);
-                } finally {
-                    setIsProcessingStt(false);
-                    setIsListening(false);
-                }
-            };
-
-            mediaRecorder.start();
-            setTimeout(() => {
-                if (mediaRecorder.state === 'recording') {
-                    mediaRecorder.stop();
-                }
-            }, 3500);
-
-        } catch (e) {
-            console.error("Mic access denied:", e);
-            setIsListening(false);
-            alert("마이크 권한이 필요해요! 🎤");
-        }
-    }, [setIsListening, setIsProcessingStt]);
-
-    // ✅ 의존성 배열을 []로 만들어 완전히 stable하게
+    // 마이크 켜기 (재시작 로직 포함)
     const startListening = useCallback(() => {
-        // 이미 듣고 있거나 처리 중이면 중복 실행 방지
-        if (isListeningRef.current || isProcessingSttRef.current || isStartingRef.current) return;
+        if (shouldListenRef.current) return; // 이미 켜려는 의도라면 중복 실행 방지
+        shouldListenRef.current = true;
 
-        // 기존 인스턴스 확실히 정리
-        if (recognitionRef.current) {
-            recognitionRef.current.abort();
-            recognitionRef.current = null;
-        }
+        const startRecognition = () => {
+            if (!('webkitSpeechRecognition' in window)) {
+                console.warn("Browser does not support speech recognition");
+                return;
+            }
 
-        isStartingRef.current = true;
+            // 기존 인스턴스 정리
+            if (recognitionRef.current) {
+                try { recognitionRef.current.abort(); } catch (e) { }
+            }
 
-        if ('webkitSpeechRecognition' in window) {
             const recognition = new (window as any).webkitSpeechRecognition();
             recognitionRef.current = recognition;
 
             recognition.lang = 'ko-KR';
-            recognition.continuous = false;
+            recognition.continuous = false; // 모바일 호환성을 위해 false 반복 방식 사용
             recognition.interimResults = false;
             recognition.maxAlternatives = 1;
 
-            recognition.onstart = () => {
-                console.log("🎤 Speech Recognition Started");
-                isStartingRef.current = false;
-                setIsListening(true);
-            };
+            recognition.onstart = () => setIsListening(true);
 
             recognition.onend = () => {
-                console.log("🎤 Speech Recognition Ended");
-                isStartingRef.current = false;
-                // 현재 인스턴스가 내 것이 맞는지 확인
-                if (recognitionRef.current === recognition) {
-                    setIsListening(false);
+                setIsListening(false);
+                // 🔥 핵심: 사용자가 stop을 부르지 않았는데 꺼졌다면 즉시 부활 (Keep-Alive)
+                if (shouldListenRef.current) {
+                    // 브라우저 부하 방지를 위한 아주 짧은 딜레이
+                    setTimeout(() => {
+                        if (shouldListenRef.current) startRecognition();
+                    }, 100);
+                } else {
                     recognitionRef.current = null;
                 }
             };
 
             recognition.onresult = (event: any) => {
                 const transcript = event.results[0][0].transcript;
-                console.log("Mic Transcript:", transcript);
+                console.log("🗣️ Recognized:", transcript);
                 const number = normalizeKoreanNumber(transcript);
-
                 if (number) {
                     onResultRef.current(number);
                 }
             };
 
             recognition.onerror = (event: any) => {
-                console.error("Speech error:", event.error);
-                isStartingRef.current = false;
-                if (recognitionRef.current === recognition) {
+                console.warn("Speech error:", event.error);
+                // 'not-allowed'는 권한 거부이므로 재시작하면 안됨 (무한 루프 방지)
+                if (event.error === 'not-allowed') {
+                    shouldListenRef.current = false;
                     setIsListening(false);
-                    recognitionRef.current = null;
+                    alert("마이크 권한이 차단되었습니다. 주소창 옆 설정에서 허용해주세요.");
                 }
-
-                // 'not-allowed'는 권한 거부, 'no-speech'는 침묵. 
-                // 즉시 폴백으로 넘어가면 사용자 경험이 안 좋을 수 있으므로 신중히 처리
-                if (event.error === 'not-allowed' || event.error === 'audio-capture') {
-                    handleVoiceRecord();
-                }
+                // 그 외 에러(no-speech 등)는 onend에서 재시작됨
             };
 
             try {
                 recognition.start();
             } catch (e) {
-                console.error("Mic start error:", e);
-                isStartingRef.current = false;
-                setIsListening(false);
-                // 즉시 폴백 실행하지 않고 멈춤 (무한 루프 방지)
+                console.error("Start failed:", e);
             }
-        } else {
-            handleVoiceRecord();
+        };
+
+        startRecognition();
+    }, []);
+
+    // 마이크 끄기 (명시적 중단 - 게임 끝날 때만 호출)
+    const stopListening = useCallback(() => {
+        shouldListenRef.current = false; // 재시작 방지 플래그 끔
+        if (recognitionRef.current) {
+            recognitionRef.current.abort();
+            recognitionRef.current = null;
         }
-    }, []); // ✅ 빈 배열 = 절대 재생성되지 않음
+        setIsListening(false);
+    }, []);
+
+    // 컴포넌트 언마운트 시 정리
+    useEffect(() => {
+        return () => {
+            shouldListenRef.current = false;
+            if (recognitionRef.current) {
+                recognitionRef.current.abort();
+            }
+        };
+    }, []);
 
     return {
-        isListening: isListeningRef.current,
-        isProcessingStt: isProcessingSttRef.current,
-        startListening,
-        stopListening
+        isListening,
+        startListening, // 이제 외부에서 한 번만 부르면 됩니다.
+        stopListening,
+        isProcessingStt: false // 호환성 유지
     };
 };

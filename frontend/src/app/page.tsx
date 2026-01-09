@@ -92,10 +92,13 @@ export default function Home() {
         onTimeOver: handleTimeOver
     });
 
-    const handleSttResult = (number: string) => {
+    const handleSttResult = useCallback((number: string) => {
+        // 로딩 중이거나, 설명 중이거나, 이미 정답을 맞췄다면 무시
+        if (loading || explanation || isCorrect) return;
+
         setUserAnswer(number);
         // STT는 입력만 하고 자동 제출하지 않음
-    };
+    }, [loading, explanation, isCorrect]);
 
     const { isListening, isProcessingStt, startListening, stopListening } = useSpeechRecognition({
         onResult: handleSttResult
