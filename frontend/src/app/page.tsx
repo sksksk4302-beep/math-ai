@@ -202,15 +202,18 @@ export default function Home() {
         }
     };
 
-    // 문제 변경 시 STT 자동 시작
+    // 문제 변경 시 STT 자동 시작 (첫 문제만)
     useEffect(() => {
-        if (problem && !loading && !explanation && viewMode === 'game') {
+        // continuous=true이므로 한 번만 시작하면 계속 유지됨
+        // 이미 listening 중이면 재시작 불필요
+        if (problem && !loading && !explanation && viewMode === 'game' && !isListening) {
+            console.log("🎤 [Auto STT] Starting immediately...");
             const timer = setTimeout(() => {
                 startListening();
-            }, 500);
+            }, 100);  // 딜레이 최소화
             return () => clearTimeout(timer);
         }
-    }, [problem, loading, explanation, startListening, viewMode]);
+    }, [problem, loading, explanation, startListening, viewMode, isListening]);
 
     // API 함수들
     const prefetchProblem = async (currentSessionId: string) => {
@@ -239,7 +242,8 @@ export default function Home() {
         setIsCorrect(null);
         setUserAnswer('');
         stopAudio();
-        stopListening(); // STT 중단
+        // stopListening() 제거 - continuous로 계속 유지
+        // loading=true 상태에서 handleSttResult가 입력을 무시함
 
         try {
             const res = await fetch(`${API_URL}/generate-problem`, {
