@@ -145,6 +145,10 @@ export default function Home() {
     const handleStartNew = async () => {
         console.log("🎮 [새로 시작하기] user_id:", user);
         setLoading(true);
+
+        // ✅ 사용자 터치 이벤트 내부이므로 iOS에서 허용됨
+        startListening();
+
         try {
             const res = await fetch(`${API_URL}/start-session`, {
                 method: 'POST',
@@ -167,71 +171,6 @@ export default function Home() {
             console.error("❌ Start session failed:", e);
             alert("게임을 시작할 수 없어요 ㅠㅠ");
             setLoading(false);
-        }
-    };
-
-    const handleContinue = async () => {
-        console.log("🔄 [이어하기] user_id:", user);
-        setLoading(true);
-        try {
-            const res = await fetch(`${API_URL}/continue-session`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id: user }),
-            });
-            console.log("📡 [continue-session] Response status:", res.status);
-            const data = await res.json();
-            console.log("📦 [continue-session] Response data:", data);
-
-            if (data.status === 'no_history') {
-                alert("이전 게임 기록이 없어서 새로 시작할게요!");
-                handleStartNew();
-                return;
-            }
-
-            setSessionId(data.session_id);
-            setStats({
-                level: data.current_level,
-                stickers: data.level_stickers,
-                totalStickers: data.total_stickers
-            });
-            console.log("✅ [Stats Set] Level:", data.current_level, "Stickers:", data.level_stickers, "Total:", data.total_stickers);
-            setViewMode('game');
-            fetchProblem(data.session_id);
-        } catch (e) {
-            console.error("❌ Continue session failed:", e);
-            alert("이어하기를 실패했어요. 새로 시작할게요!");
-            handleStartNew();
-        }
-    };
-
-    // 문제 변경 시 STT 자동 시작 (첫 문제만)
-    useEffect(() => {
-        // continuous=true이므로 한 번만 시작하면 계속 유지됨
-        // 이미 listening 중이면 재시작 불필요
-        if (problem && !loading && !explanation && viewMode === 'game') {
-            console.log("🎤 [Auto STT] Restarting for new problem...");
-
-            // ✅ 이전 음성 버퍼 제거를 위해 리셋
-            stopListening();
-            const timer = setTimeout(() => {
-                startListening();
-            }, 200);  // 0.2초 후 다시 시작하여 깨끗한 상태로
-            return () => clearTimeout(timer);
-        }
-    }, [problem, loading, explanation, startListening, stopListening, viewMode]);
-
-    // API 함수들
-    const prefetchProblem = async (currentSessionId: string) => {
-        try {
-            const res = await fetch(`${API_URL}/generate-problem`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id: user, session_id: currentSessionId }),
-                cache: 'no-store'
-            });
-            const data = await res.json();
-            console.log("✨ Prefetched:", data.problem);
             setNextProblem(data);
         } catch (error) {
             console.error("Prefetch failed:", error);

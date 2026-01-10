@@ -18,21 +18,18 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
         onResultRef.current = onResult;
     }, [onResult]);
 
-    // 마이크 켜기 (재시작 로직 포함)
+    // 마이크 켜기 (iOS 호환: 이미 실행 중이면 재시작하지 않음)
     const startListening = useCallback(() => {
         console.log("🎤 [STT] startListening called, current state:", {
             shouldListen: shouldListenRef.current,
-            hasRecognition: !!recognitionRef.current
+            hasRecognition: !!recognitionRef.current,
+            isListening
         });
 
-        // 기존 인스턴스가 있으면 정리
-        if (recognitionRef.current) {
-            try {
-                recognitionRef.current.abort();
-                console.log("🛑 [STT] Aborted previous instance");
-            } catch (e) {
-                console.warn("⚠️ [STT] Abort failed:", e);
-            }
+        // ✅ 이미 듣고 있다면 아무것도 하지 않음 (iOS 세션 유지)
+        if (isListening) {
+            console.log("⏭️ [STT] Already listening, skip restart");
+            return;
         }
 
         shouldListenRef.current = true;
@@ -73,62 +70,66 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
                 }
             };
 
-            recognition.onresult = (event: any) => {
-                const transcript = event.results[0][0].transcript;
-                console.log("🗣️ [STT] Recognized speech:", transcript);
-                const number = normalizeKoreanNumber(transcript);
-                console.log("🔢 [STT] Normalized to number:", number);
-                if (number) {
-                    onResultRef.current(number);
-                }
-            };
+        };
 
-            recognition.onerror = (event: any) => {
-                console.error("❌ [STT] Speech error:", event.error);
-                // 'not-allowed'는 권한 거부이므로 재시작하면 안됨 (무한 루프 방지)
-                if (event.error === 'not-allowed') {
-                    shouldListenRef.current = false;
-                    setIsListening(false);
-                    alert("마이크 권한이 차단되었습니다. 주소창 옆 설정에서 허용해주세요.");
-                }
-                // 그 외 에러(no-speech 등)는 onend에서 재시작됨
-            };
-
-            try {
-                recognition.start();
-                console.log("▶️ [STT] Recognition.start() called");
-            } catch (e) {
-                console.error("❌ [STT] Start failed:", e);
+        recognition.onresult = (event: any) => {
+            // ✅ event.resultIndex 사용: 세션을 유지하면서 최신 결과만 가져옴
+            const current = event.resultIndex;
+            const transcript = event.results[current][0].transcript;
+            console.log("🗣️ [STT] Recognized speech:", transcript, "at index:", current);
+            const number = normalizeKoreanNumber(transcript);
+            console.log("🔢 [STT] Normalized to number:", number);
+            if (number) {
+                onResultRef.current(number);
             }
         };
 
-        startRecognition();
-    }, []);
+        recognition.onerror = (event: any) => {
+            console.error("❌ [STT] Speech error:", event.error);
+            // 'not-allowed'는 권한 거부이므로 재시작하면 안됨 (무한 루프 방지)
+            if (event.error === 'not-allowed') {
+                shouldListenRef.current = false;
+                setIsListening(false);
+                alert("마이크 권한이 차단되었습니다. 주소창 옆 설정에서 허용해주세요.");
+            }
+            // 그 외 에러(no-speech 등)는 onend에서 재시작됨
+        };
 
-    // 마이크 끄기 (명시적 중단 - 게임 끝날 때만 호출)
-    const stopListening = useCallback(() => {
-        shouldListenRef.current = false; // 재시작 방지 플래그 끔
+        try {
+            recognition.start();
+            console.log("▶️ [STT] Recognition.start() called");
+        } catch (e) {
+            console.error("❌ [STT] Start failed:", e);
+        }
+    };
+
+    startRecognition();
+}, []);
+
+// 마이크 끄기 (명시적 중단 - 게임 끝날 때만 호출)
+const stopListening = useCallback(() => {
+    shouldListenRef.current = false; // 재시작 방지 플래그 끔
+    if (recognitionRef.current) {
+        recognitionRef.current.abort();
+        recognitionRef.current = null;
+    }
+    setIsListening(false);
+}, []);
+
+// 컴포넌트 언마운트 시 정리
+useEffect(() => {
+    return () => {
+        shouldListenRef.current = false;
         if (recognitionRef.current) {
             recognitionRef.current.abort();
-            recognitionRef.current = null;
         }
-        setIsListening(false);
-    }, []);
-
-    // 컴포넌트 언마운트 시 정리
-    useEffect(() => {
-        return () => {
-            shouldListenRef.current = false;
-            if (recognitionRef.current) {
-                recognitionRef.current.abort();
-            }
-        };
-    }, []);
-
-    return {
-        isListening,
-        startListening, // 이제 외부에서 한 번만 부르면 됩니다.
-        stopListening,
-        isProcessingStt: false // 호환성 유지
     };
+}, []);
+
+return {
+    isListening,
+    startListening, // 이제 외부에서 한 번만 부르면 됩니다.
+    stopListening,
+    isProcessingStt: false // 호환성 유지
+};
 };
