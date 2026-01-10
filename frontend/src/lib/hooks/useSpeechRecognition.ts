@@ -47,7 +47,7 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
             recognitionRef.current = recognition;
 
             recognition.lang = 'ko-KR';
-            recognition.continuous = false; // 모바일 호환성을 위해 false 반복 방식 사용
+            recognition.continuous = true;  // ✅ 지속적으로 음성 듣기
             recognition.interimResults = false;
             recognition.maxAlternatives = 1;
 
