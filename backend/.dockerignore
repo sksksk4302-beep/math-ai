@@ -1,0 +1,9 @@
+scripts/
+test_output.txt
+*.log
+__pycache__/
+*.pyc
+.env
+.git
+.gitignore
+README.md

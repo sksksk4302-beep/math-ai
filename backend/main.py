@@ -20,10 +20,10 @@ PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT")
 LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 KEY_PATH = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
-# Agent Configuration
-AGENT_PROJECT_ID = "math-ai-479306"
-AGENT_LOCATION = "us-central1"
-AGENT_ID = "2f2ecf6f-109e-44de-84a6-9a068f90a7b5"
+# Agent Configuration (환경 변수로 관리)
+AGENT_PROJECT_ID = os.getenv("AGENT_PROJECT_ID", "math-ai-479306")
+AGENT_LOCATION = os.getenv("AGENT_LOCATION", "us-central1")  
+AGENT_ID = os.getenv("AGENT_ID", "2f2ecf6f-109e-44de-84a6-9a068f90a7b5")
 
 # Firebase 초기화
 if not firebase_admin._apps:
