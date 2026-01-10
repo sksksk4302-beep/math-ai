@@ -23,6 +23,7 @@ export const normalizeKoreanNumber = (text: string): string => {
         normalized = normalized.replace(new RegExp(key, 'g'), val);
     });
 
-    // Extract digits
-    return normalized.replace(/[^0-9]/g, '');
+    // Extract digits and return ONLY the first one (prevent "7 7" → "77")
+    const digits = normalized.replace(/[^0-9]/g, '');
+    return digits.charAt(0) || ''; // 첫 번째 숫자만 반환
 };

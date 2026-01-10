@@ -95,20 +95,10 @@ export default function Home() {
 
 
 
-    // userAnswer 상태 추적을 위한 ref (Stale Closure 방지)
-    const userAnswerRef = useRef(userAnswer);
-    useEffect(() => {
-        userAnswerRef.current = userAnswer;
-    }, [userAnswer]);
+
 
     const handleSttResult = (number: string) => {
-        console.log("🗣️ [STT Result]", number, "State:", { loading, explanation, isCorrect, currentAnswer: userAnswerRef.current });
-
-        // ✅ 중복 입력 방지: 이미 답이 입력되어 있으면 무시 (ref 사용)
-        if (userAnswerRef.current) {
-            console.warn("⚠️ [STT Ignored] - Answer already entered:", userAnswerRef.current);
-            return;
-        }
+        console.log("🗣️ [STT Result]", number, "State:", { loading, explanation, isCorrect });
 
         // 로딩 중이거나, 설명 중이거나, 이미 정답을 맞췄다면 무시
         if (loading || explanation || isCorrect) {
