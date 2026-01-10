@@ -209,14 +209,17 @@ export default function Home() {
     useEffect(() => {
         // continuous=true이므로 한 번만 시작하면 계속 유지됨
         // 이미 listening 중이면 재시작 불필요
-        if (problem && !loading && !explanation && viewMode === 'game' && !isListening) {
-            console.log("🎤 [Auto STT] Starting immediately...");
+        if (problem && !loading && !explanation && viewMode === 'game') {
+            console.log("🎤 [Auto STT] Restarting for new problem...");
+
+            // ✅ 이전 음성 버퍼 제거를 위해 리셋
+            stopListening();
             const timer = setTimeout(() => {
                 startListening();
-            }, 100);  // 딜레이 최소화
+            }, 200);  // 0.2초 후 다시 시작하여 깨끗한 상태로
             return () => clearTimeout(timer);
         }
-    }, [problem, loading, explanation, startListening, viewMode, isListening]);
+    }, [problem, loading, explanation, startListening, stopListening, viewMode]);
 
     // API 함수들
     const prefetchProblem = async (currentSessionId: string) => {
