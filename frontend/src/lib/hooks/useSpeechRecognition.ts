@@ -20,18 +20,27 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
 
     // 마이크 켜기 (재시작 로직 포함)
     const startListening = useCallback(() => {
-        if (shouldListenRef.current) return; // 이미 켜려는 의도라면 중복 실행 방지
+        console.log("🎤 [STT] startListening called, current state:", {
+            shouldListen: shouldListenRef.current,
+            hasRecognition: !!recognitionRef.current
+        });
+
+        // 기존 인스턴스가 있으면 정리
+        if (recognitionRef.current) {
+            try {
+                recognitionRef.current.abort();
+                console.log("🛑 [STT] Aborted previous instance");
+            } catch (e) {
+                console.warn("⚠️ [STT] Abort failed:", e);
+            }
+        }
+
         shouldListenRef.current = true;
 
         const startRecognition = () => {
             if (!('webkitSpeechRecognition' in window)) {
-                console.warn("Browser does not support speech recognition");
+                console.warn("❌ Browser does not support speech recognition");
                 return;
-            }
-
-            // 기존 인스턴스 정리
-            if (recognitionRef.current) {
-                try { recognitionRef.current.abort(); } catch (e) { }
             }
 
             const recognition = new (window as any).webkitSpeechRecognition();
@@ -42,15 +51,22 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
             recognition.interimResults = false;
             recognition.maxAlternatives = 1;
 
-            recognition.onstart = () => setIsListening(true);
+            recognition.onstart = () => {
+                console.log("✅ [STT] Recognition started");
+                setIsListening(true);
+            };
 
             recognition.onend = () => {
+                console.log("🔚 [STT] Recognition ended, shouldListen:", shouldListenRef.current);
                 setIsListening(false);
                 // 🔥 핵심: 사용자가 stop을 부르지 않았는데 꺼졌다면 즉시 부활 (Keep-Alive)
                 if (shouldListenRef.current) {
                     // 브라우저 부하 방지를 위한 아주 짧은 딜레이
                     setTimeout(() => {
-                        if (shouldListenRef.current) startRecognition();
+                        if (shouldListenRef.current) {
+                            console.log("🔄 [STT] Auto-restarting...");
+                            startRecognition();
+                        }
                     }, 100);
                 } else {
                     recognitionRef.current = null;
@@ -59,15 +75,16 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
 
             recognition.onresult = (event: any) => {
                 const transcript = event.results[0][0].transcript;
-                console.log("🗣️ Recognized:", transcript);
+                console.log("🗣️ [STT] Recognized speech:", transcript);
                 const number = normalizeKoreanNumber(transcript);
+                console.log("🔢 [STT] Normalized to number:", number);
                 if (number) {
                     onResultRef.current(number);
                 }
             };
 
             recognition.onerror = (event: any) => {
-                console.warn("Speech error:", event.error);
+                console.error("❌ [STT] Speech error:", event.error);
                 // 'not-allowed'는 권한 거부이므로 재시작하면 안됨 (무한 루프 방지)
                 if (event.error === 'not-allowed') {
                     shouldListenRef.current = false;
@@ -79,8 +96,9 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
 
             try {
                 recognition.start();
+                console.log("▶️ [STT] Recognition.start() called");
             } catch (e) {
-                console.error("Start failed:", e);
+                console.error("❌ [STT] Start failed:", e);
             }
         };
 

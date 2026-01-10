@@ -92,13 +92,19 @@ export default function Home() {
         onTimeOver: handleTimeOver
     });
 
-    const handleSttResult = useCallback((number: string) => {
-        // 로딩 중이거나, 설명 중이거나, 이미 정답을 맞췄다면 무시
-        if (loading || explanation || isCorrect) return;
 
+    const handleSttResult = (number: string) => {
+        console.log("🗣️ [STT Result]", number, "State:", { loading, explanation, isCorrect });
+
+        // 로딩 중이거나, 설명 중이거나, 이미 정답을 맞췄다면 무시
+        if (loading || explanation || isCorrect) {
+            console.warn("⚠️ [STT Ignored] - Condition blocked input");
+            return;
+        }
+
+        console.log("✅ [STT Accepted] Setting answer:", number);
         setUserAnswer(number);
-        // STT는 입력만 하고 자동 제출하지 않음
-    }, [loading, explanation, isCorrect]);
+    };
 
     const { isListening, isProcessingStt, startListening, stopListening } = useSpeechRecognition({
         onResult: handleSttResult
