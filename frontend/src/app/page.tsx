@@ -95,7 +95,13 @@ export default function Home() {
 
 
     const handleSttResult = (number: string) => {
-        console.log("🗣️ [STT Result]", number, "State:", { loading, explanation, isCorrect });
+        console.log("🗣️ [STT Result]", number, "State:", { loading, explanation, isCorrect, currentAnswer: userAnswer });
+
+        // ✅ 중복 입력 방지: 이미 답이 입력되어 있으면 무시
+        if (userAnswer) {
+            console.warn("⚠️ [STT Ignored] - Answer already entered:", userAnswer);
+            return;
+        }
 
         // 로딩 중이거나, 설명 중이거나, 이미 정답을 맞췄다면 무시
         if (loading || explanation || isCorrect) {
