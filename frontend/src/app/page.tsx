@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
 import VisualExplanation from '../components/VisualExplanation';
@@ -94,12 +94,19 @@ export default function Home() {
     });
 
 
-    const handleSttResult = (number: string) => {
-        console.log("🗣️ [STT Result]", number, "State:", { loading, explanation, isCorrect, currentAnswer: userAnswer });
 
-        // ✅ 중복 입력 방지: 이미 답이 입력되어 있으면 무시
-        if (userAnswer) {
-            console.warn("⚠️ [STT Ignored] - Answer already entered:", userAnswer);
+    // userAnswer 상태 추적을 위한 ref (Stale Closure 방지)
+    const userAnswerRef = useRef(userAnswer);
+    useEffect(() => {
+        userAnswerRef.current = userAnswer;
+    }, [userAnswer]);
+
+    const handleSttResult = (number: string) => {
+        console.log("🗣️ [STT Result]", number, "State:", { loading, explanation, isCorrect, currentAnswer: userAnswerRef.current });
+
+        // ✅ 중복 입력 방지: 이미 답이 입력되어 있으면 무시 (ref 사용)
+        if (userAnswerRef.current) {
+            console.warn("⚠️ [STT Ignored] - Answer already entered:", userAnswerRef.current);
             return;
         }
 

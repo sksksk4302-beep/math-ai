@@ -59,11 +59,18 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
             recognition.onend = () => {
                 console.log("🔚 [STT] Recognition ended, shouldListen:", shouldListenRef.current);
                 setIsListening(false);
-                recognitionRef.current = null;
 
-                // ⚠️ continuous=true이므로 자동 재시작 제거
-                // continuous가 제대로 작동하면 onend가 거의 발생하지 않아야 함
-                console.warn("⚠️ [STT] Unexpected end - continuous should keep running");
+                // 모바일/PC 끊김 방지: 사용자가 멈추지 않았는데 꺼졌다면 재시작
+                if (shouldListenRef.current) {
+                    console.log("🔄 [STT] Attempting auto-restart...");
+                    setTimeout(() => {
+                        if (shouldListenRef.current && !recognitionRef.current) {
+                            startRecognition();
+                        }
+                    }, 100);
+                } else {
+                    recognitionRef.current = null;
+                }
             };
 
             recognition.onresult = (event: any) => {
