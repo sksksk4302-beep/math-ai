@@ -62,6 +62,7 @@ export default function Home() {
     const [newLevel, setNewLevel] = useState(1);
     const [waitingForAnswer, setWaitingForAnswer] = useState(false);
     const [stickerIncrement, setStickerIncrement] = useState(0);
+    const [showNextButton, setShowNextButton] = useState(false);
 
     // 커스텀 훅들
     const { playAudio, stopAudio } = useAudio();
@@ -110,7 +111,7 @@ export default function Home() {
         setUserAnswer(number);
     };
 
-    const { isListening, isProcessingStt, startListening, stopListening } = useSpeechRecognition({
+    const { isListening, startListening, stopListening } = useSpeechRecognition({
         onResult: handleSttResult
     });
 
@@ -249,40 +250,43 @@ export default function Home() {
             setFeedback("잠시 문제가 생겼어요 🔧");
         } finally {
             setLoading(false);
-            // ✅ 새 문제 로드 후 STT 재시작 (continuous:false이므로 매번 호출 필요)
-            setTimeout(() => {
-                if (!isCorrect && !explanation) {
-                    startListening();
-                }
-            }, 500);
+            // iOS 호환: 자동 STT 재시작 제거 - 사용자 버튼 클릭에서만 시작
         }
     };
 
     const handleNextProblem = (forceRefresh = false) => {
+        console.log("🎯 [handleNextProblem] Starting");
+
+        // 오디오 충돌 방지: STT 시작 전 오디오 중지
+        stopAudio();
+        setShowNextButton(false);
+
         if (forceRefresh || !nextProblem) {
             fetchProblem();
+            // fetchProblem 완료 후 사용자가 직접 버튼을 클릭해야 STT 시작
             return;
         }
+
         setLoading(true);
         setFeedback('');
         setExplanation(null);
         setIsCorrect(null);
         setUserAnswer('');
         setProblem(nextProblem);
-        setWaitingForAnswer(true); // 새 문제 시작 시 답변 대기
-
+        setWaitingForAnswer(true);
         setNextProblem(null);
         setLoading(false);
-        // ✅ 새 문제 시작 시 STT 재시작
-        setTimeout(() => startListening(), 500);
+
+        // iOS 호환: 사용자 제스처(버튼 클릭) 내에서 STT 시작 ✅
+        startListening();
     };
 
     const checkAnswer = async (answerOverride?: string, isTimeout = false) => {
         if (!problem || !sessionId) return;
         if (!isTimeout && (!answerOverride && !userAnswer)) return;
 
-        // stopListening() 제거 - continuous로 계속 유지
-        // loading=true로 handleSttResult가 입력을 차단함
+        // STT 중지 (사용자가 정답 확인 버튼을 클릭했으므로 제스처 내)
+        stopListening();
         setTimerActive(false);
 
         // 현재 문제를 저장 (오답 설명용)
@@ -353,7 +357,8 @@ export default function Home() {
                     playAudio(data.audio_base64);
                 }
 
-                setTimeout(() => handleNextProblem(data.levelup_event), 2000);
+                // 자동 다음 문제 생성 제거 - "다음 문제" 버튼 표시
+                setShowNextButton(true);
             } catch (error) {
                 console.error("Submit failed:", error);
                 setTimeout(() => handleNextProblem(false), 1500);
@@ -429,7 +434,6 @@ export default function Home() {
                     stats={stats}
                     stickerIncrement={stickerIncrement}
                     isListening={isListening}
-                    isProcessingStt={isProcessingStt}
                 />
 
 
@@ -559,6 +563,26 @@ export default function Home() {
                         </motion.div>
                     )}
                 </div>
+
+                {/* 다음 문제 버튼 - 정답 후 표시 */}
+                <AnimatePresence>
+                    {showNextButton && (
+                        <motion.div
+                            initial={{ y: 100, opacity: 0 }}
+                            animate={{ y: 0, opacity: 1 }}
+                            exit={{ y: 100, opacity: 0 }}
+                            className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 w-full max-w-md px-4"
+                        >
+                            <button
+                                onClick={() => handleNextProblem(false)}
+                                className="w-full py-4 md:py-6 bg-gradient-to-b from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-2xl text-xl md:text-2xl font-black shadow-lg shadow-blue-200 active:scale-95 transition-all flex items-center justify-center gap-3 pointer-events-auto"
+                            >
+                                <span>다음 문제</span>
+                                <span>🚀</span>
+                            </button>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
             </div>
 
             {/* AI Explanation Modal */}
@@ -638,7 +662,8 @@ export default function Home() {
                                             onClick={() => {
                                                 stopAudio();
                                                 setExplanation(null);
-                                                fetchProblem();
+                                                // iOS 호환: handleNextProblem 호출 (사용자 제스처 내에서 STT 시작)
+                                                handleNextProblem(false);
                                             }}
                                             className="w-full py-3 md:py-4 bg-orange-500 text-white rounded-xl font-bold shadow-lg shadow-orange-200 hover:bg-orange-600 active:scale-95 transition-all mt-auto"
                                         >

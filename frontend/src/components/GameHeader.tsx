@@ -5,10 +5,9 @@ interface GameHeaderProps {
     stats: Stats;
     stickerIncrement: number;
     isListening: boolean;
-    isProcessingStt: boolean;
 }
 
-export default function GameHeader({ stats, stickerIncrement, isListening, isProcessingStt }: GameHeaderProps) {
+export default function GameHeader({ stats, stickerIncrement, isListening }: GameHeaderProps) {
     return (
         <header className="sticky top-0 z-50 flex justify-between items-center mb-6 md:mb-12 py-2 bg-[#FFF9F0]/90 backdrop-blur-sm transition-all duration-300">
             <div className="flex items-center gap-2 md:gap-4">
@@ -43,14 +42,9 @@ export default function GameHeader({ stats, stickerIncrement, isListening, isPro
                         </span>
 
                         {/* 마이크 상태 표시 */}
-                        {isListening && !isProcessingStt && (
+                        {isListening && (
                             <span className="text-lg md:text-xl animate-pulse ml-1">
                                 🎤
-                            </span>
-                        )}
-                        {isProcessingStt && (
-                            <span className="text-lg md:text-xl animate-bounce ml-1">
-                                ⏳
                             </span>
                         )}
 
