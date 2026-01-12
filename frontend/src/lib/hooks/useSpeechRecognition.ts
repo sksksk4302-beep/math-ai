@@ -58,10 +58,8 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
         };
 
         recognition.onresult = (event: any) => {
-            // ✅ event.resultIndex 사용: 세션을 유지하면서 최신 결과만 가져옴
-            const current = event.resultIndex;
-            const transcript = event.results[current][0].transcript;
-            console.log("🗣️ [STT] Recognized speech:", transcript, "at index:", current);
+            const transcript = event.results[0][0].transcript;
+            console.log("🗣️ [STT] Recognized speech:", transcript);
             const number = normalizeKoreanNumber(transcript);
             console.log("🔢 [STT] Normalized to number:", number);
             if (number) {
@@ -88,7 +86,7 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
         }
     };
 
-    // 마이크 켜기 (iOS 호환: 이미 실행 중이면 재시작하지 않음)
+    // 마이크 켜기 (iOS 호환)
     const startListening = useCallback(() => {
         console.log("🎤 [STT] startListening called, current state:", {
             shouldListen: shouldListenRef.current,
@@ -96,10 +94,15 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
             isListening
         });
 
-        // ✅ 이미 듣고 있다면 아무것도 하지 않음 (iOS 세션 유지)
-        if (isListening) {
-            console.log("⏭️ [STT] Already listening, skip restart");
-            return;
+        // ✅ 기존 인스턴스가 있으면 먼저 정리 (153abfe 방식으로 복원)
+        if (recognitionRef.current) {
+            try {
+                recognitionRef.current.abort();
+                console.log("🛑 [STT] Aborted previous instance");
+            } catch (e) {
+                console.warn("⚠️ [STT] Abort failed:", e);
+            }
+            recognitionRef.current = null;
         }
 
         shouldListenRef.current = true;
