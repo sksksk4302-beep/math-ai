@@ -249,6 +249,12 @@ export default function Home() {
             setFeedback("잠시 문제가 생겼어요 🔧");
         } finally {
             setLoading(false);
+            // ✅ 새 문제 로드 후 STT 재시작 (continuous:false이므로 매번 호출 필요)
+            setTimeout(() => {
+                if (!isCorrect && !explanation) {
+                    startListening();
+                }
+            }, 500);
         }
     };
 
@@ -267,7 +273,8 @@ export default function Home() {
 
         setNextProblem(null);
         setLoading(false);
-        // prefetchProblem removed - function not defined
+        // ✅ 새 문제 시작 시 STT 재시작
+        setTimeout(() => startListening(), 500);
     };
 
     const checkAnswer = async (answerOverride?: string, isTimeout = false) => {
