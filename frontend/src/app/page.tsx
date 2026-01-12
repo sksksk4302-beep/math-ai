@@ -171,9 +171,44 @@ export default function Home() {
             console.error("❌ Start session failed:", e);
             alert("게임을 시작할 수 없어요 ㅠㅠ");
             setLoading(false);
-            setNextProblem(data);
-        } catch (error) {
-            console.error("Prefetch failed:", error);
+        }
+    };
+
+    const handleContinue = async () => {
+        console.log("🔄 [이어하기] user_id:", user);
+        setLoading(true);
+
+        // ✅ 사용자 터치 이벤트 내부이므로 iOS에서 허용됨
+        startListening();
+
+        try {
+            const res = await fetch(`${API_URL}/continue-session`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: user }),
+            });
+            console.log("📡 [continue-session] Response status:", res.status);
+            const data = await res.json();
+            console.log("📦 [continue-session] Response data:", data);
+
+            if (data.session_id) {
+                setSessionId(data.session_id);
+                setStats({
+                    level: data.current_level,
+                    stickers: data.level_stickers,
+                    totalStickers: data.total_stickers
+                });
+                setViewMode('game');
+                fetchProblem(data.session_id);
+            } else {
+                // 이어할 세션이 없으면 새로 시작
+                alert("이어할 기록이 없어요. 새로 시작할게요!");
+                handleStartNew();
+            }
+        } catch (e) {
+            console.error("❌ Continue session failed:", e);
+            alert("세션을 불러올 수 없어요. 새로 시작할게요!");
+            handleStartNew();
         }
     };
 
@@ -208,7 +243,7 @@ export default function Home() {
                 });
             }
 
-            prefetchProblem(activeSessionId);
+            // prefetchProblem removed - function not defined
         } catch (error) {
             console.error("Fetch failed:", error);
             setFeedback("잠시 문제가 생겼어요 🔧");
@@ -232,7 +267,7 @@ export default function Home() {
 
         setNextProblem(null);
         setLoading(false);
-        if (sessionId) prefetchProblem(sessionId);
+        // prefetchProblem removed - function not defined
     };
 
     const checkAnswer = async (answerOverride?: string, isTimeout = false) => {
