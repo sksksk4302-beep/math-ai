@@ -18,58 +18,43 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
         onResultRef.current = onResult;
     }, [onResult]);
 
-    // 마이크 켜기 (iOS 호환: 이미 실행 중이면 재시작하지 않음)
-    const startListening = useCallback(() => {
-        console.log("🎤 [STT] startListening called, current state:", {
-            shouldListen: shouldListenRef.current,
-            hasRecognition: !!recognitionRef.current,
-            isListening
-        });
-
-        // ✅ 이미 듣고 있다면 아무것도 하지 않음 (iOS 세션 유지)
-        if (isListening) {
-            console.log("⏭️ [STT] Already listening, skip restart");
+    // startRecognition을 별도 함수로 분리 (onend 핸들러에서 재호출 가능하도록)
+    const startRecognition = () => {
+        if (!('webkitSpeechRecognition' in window)) {
+            console.warn("❌ Browser does not support speech recognition");
             return;
         }
 
-        shouldListenRef.current = true;
+        const recognition = new (window as any).webkitSpeechRecognition();
+        recognitionRef.current = recognition;
 
-        const startRecognition = () => {
-            if (!('webkitSpeechRecognition' in window)) {
-                console.warn("❌ Browser does not support speech recognition");
-                return;
+        recognition.lang = 'ko-KR';
+        recognition.continuous = true;  // ✅ 지속적으로 음성 듣기
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        recognition.onstart = () => {
+            console.log("✅ [STT] Recognition started");
+            setIsListening(true);
+        };
+
+        recognition.onend = () => {
+            console.log("🔚 [STT] Recognition ended, shouldListen:", shouldListenRef.current);
+            setIsListening(false);
+
+            // ✅ recognitionRef를 먼저 null로 설정 (재시작 조건이 올바르게 작동하도록)
+            const shouldRestart = shouldListenRef.current;
+            recognitionRef.current = null;
+
+            // 모바일/PC 끊김 방지: 사용자가 멈추지 않았는데 꺼졌다면 재시작
+            if (shouldRestart) {
+                console.log("🔄 [STT] Attempting auto-restart...");
+                setTimeout(() => {
+                    if (shouldListenRef.current) {
+                        startRecognition();
+                    }
+                }, 100);
             }
-
-            const recognition = new (window as any).webkitSpeechRecognition();
-            recognitionRef.current = recognition;
-
-            recognition.lang = 'ko-KR';
-            recognition.continuous = true;  // ✅ 지속적으로 음성 듣기
-            recognition.interimResults = false;
-            recognition.maxAlternatives = 1;
-
-            recognition.onstart = () => {
-                console.log("✅ [STT] Recognition started");
-                setIsListening(true);
-            };
-
-            recognition.onend = () => {
-                console.log("🔚 [STT] Recognition ended, shouldListen:", shouldListenRef.current);
-                setIsListening(false);
-
-                // 모바일/PC 끊김 방지: 사용자가 멈추지 않았는데 꺼졌다면 재시작
-                if (shouldListenRef.current) {
-                    console.log("🔄 [STT] Attempting auto-restart...");
-                    setTimeout(() => {
-                        if (shouldListenRef.current && !recognitionRef.current) {
-                            startRecognition();
-                        }
-                    }, 100);
-                } else {
-                    recognitionRef.current = null;
-                }
-            };
-
         };
 
         recognition.onresult = (event: any) => {
@@ -103,33 +88,48 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
         }
     };
 
-    startRecognition();
-}, []);
+    // 마이크 켜기 (iOS 호환: 이미 실행 중이면 재시작하지 않음)
+    const startListening = useCallback(() => {
+        console.log("🎤 [STT] startListening called, current state:", {
+            shouldListen: shouldListenRef.current,
+            hasRecognition: !!recognitionRef.current,
+            isListening
+        });
 
-// 마이크 끄기 (명시적 중단 - 게임 끝날 때만 호출)
-const stopListening = useCallback(() => {
-    shouldListenRef.current = false; // 재시작 방지 플래그 끔
-    if (recognitionRef.current) {
-        recognitionRef.current.abort();
-        recognitionRef.current = null;
-    }
-    setIsListening(false);
-}, []);
+        // ✅ 이미 듣고 있다면 아무것도 하지 않음 (iOS 세션 유지)
+        if (isListening) {
+            console.log("⏭️ [STT] Already listening, skip restart");
+            return;
+        }
 
-// 컴포넌트 언마운트 시 정리
-useEffect(() => {
-    return () => {
-        shouldListenRef.current = false;
+        shouldListenRef.current = true;
+        startRecognition();
+    }, [isListening]);
+
+    // 마이크 끄기 (명시적 중단 - 게임 끝날 때만 호출)
+    const stopListening = useCallback(() => {
+        shouldListenRef.current = false; // 재시작 방지 플래그 끔
         if (recognitionRef.current) {
             recognitionRef.current.abort();
+            recognitionRef.current = null;
         }
-    };
-}, []);
+        setIsListening(false);
+    }, []);
 
-return {
-    isListening,
-    startListening, // 이제 외부에서 한 번만 부르면 됩니다.
-    stopListening,
-    isProcessingStt: false // 호환성 유지
-};
+    // 컴포넌트 언마운트 시 정리
+    useEffect(() => {
+        return () => {
+            shouldListenRef.current = false;
+            if (recognitionRef.current) {
+                recognitionRef.current.abort();
+            }
+        };
+    }, []);
+
+    return {
+        isListening,
+        startListening, // 이제 외부에서 한 번만 부르면 됩니다.
+        stopListening,
+        isProcessingStt: false // 호환성 유지
+    };
 };
