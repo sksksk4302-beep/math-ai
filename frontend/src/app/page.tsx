@@ -262,6 +262,9 @@ export default function Home() {
         setShowNextButton(false);
 
         if (forceRefresh || !nextProblem) {
+            setWaitingForAnswer(true);
+            // iOS 호환: 사용자 제스처(버튼 클릭) 내에서 STT 시작 ✅
+            startListening();
             fetchProblem();
             // fetchProblem 완료 후 사용자가 직접 버튼을 클릭해야 STT 시작
             return;
@@ -596,7 +599,7 @@ export default function Home() {
                         onClick={() => {
                             stopAudio();
                             setExplanation(null);
-                            fetchProblem();
+                            handleNextProblem(true);
                         }}
                     >
                         <motion.div
@@ -618,7 +621,7 @@ export default function Home() {
                                     onClick={() => {
                                         stopAudio();
                                         setExplanation(null);
-                                        fetchProblem();
+                                        handleNextProblem(true);
                                     }}
                                     className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 hover:bg-slate-200 transition-colors"
                                 >

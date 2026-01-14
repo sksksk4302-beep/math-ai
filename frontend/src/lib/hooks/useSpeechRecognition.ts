@@ -28,6 +28,7 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
         if (recognitionRef.current) {
             console.log("🧹 [STT] Cleaning up previous instance");
             try {
+                recognitionRef.current.onend = null; // Remove handler to prevent side effects
                 recognitionRef.current.abort();
             } catch (e) {
                 console.warn("⚠️ [STT] Abort failed:", e);
@@ -41,19 +42,31 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
         recognition.continuous = false;
         recognition.interimResults = false;
 
+        // 현재 인스턴스 저장
+        recognitionRef.current = recognition;
+
         recognition.onstart = () => {
+            // 현재 활성화된 인스턴스인지 확인
+            if (recognitionRef.current !== recognition) return;
+
             console.log("✅ [STT] Recognition started");
             setIsListening(true);
             isStartingRef.current = false;
         };
 
         recognition.onend = () => {
+            // 현재 활성화된 인스턴스인지 확인
+            if (recognitionRef.current !== recognition) return;
+
             console.log("🔚 [STT] Recognition ended");
             setIsListening(false);
             isStartingRef.current = false;
         };
 
         recognition.onresult = (event: any) => {
+            // 현재 활성화된 인스턴스인지 확인
+            if (recognitionRef.current !== recognition) return;
+
             const transcript = event.results[0][0].transcript;
             console.log("🗣️ [STT] Recognized speech:", transcript);
             const number = normalizeKoreanNumber(transcript);
@@ -64,6 +77,9 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
         };
 
         recognition.onerror = (event: any) => {
+            // 현재 활성화된 인스턴스인지 확인
+            if (recognitionRef.current !== recognition) return;
+
             console.error("❌ [STT] Speech error:", event.error);
             setIsListening(false);
             isStartingRef.current = false;
@@ -71,8 +87,6 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
                 alert("마이크 권한이 차단되었습니다. 주소창 옆 설정에서 허용해주세요.");
             }
         };
-
-        recognitionRef.current = recognition;
 
         try {
             recognition.start();
@@ -93,6 +107,11 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
             } catch (e) {
                 console.warn("⚠️ [STT] Stop failed:", e);
             }
+            // Do not nullify recognitionRef.current here immediately if we want onend to fire normally?
+            // Actually, if we want to force stop and reset state, we can nullify it to ignore subsequent events
+            // But usually we want onend to handle the cleanup.
+            // However, to be safe and immediate:
+            recognitionRef.current = null;
         }
         setIsListening(false);
         isStartingRef.current = false;
@@ -104,10 +123,12 @@ export const useSpeechRecognition = ({ onResult }: UseSpeechRecognitionProps) =>
             if (recognitionRef.current) {
                 console.log("🧹 [STT] Cleanup on unmount");
                 try {
+                    recognitionRef.current.onend = null; // Prevent callbacks
                     recognitionRef.current.abort();
                 } catch (e) {
                     console.warn("⚠️ [STT] Cleanup abort failed:", e);
                 }
+                recognitionRef.current = null;
             }
         };
     }, []);
